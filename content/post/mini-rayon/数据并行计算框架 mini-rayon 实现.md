@@ -50,12 +50,12 @@ Tiber 算法使用于相对简单的并发场景，任务粒度较大且相对�
 mini-rayon 是 Rust 的数据并行库，它非常轻量级，可以轻松地将顺序计算转换为并行计算。
 ```Rust
 let total_price = stores.iter()
-						.map(|store| store.compute_price(&list))
-						.sum();
+    .map(|store| store.compute_price(&list))
+    .sum();
 
 let total_price = stores.par_iter()
-						.map(|store| store.compute_price(&list))
-						.sum();
+    .map(|store| store.compute_price(&list))
+    .sum();
 ```
 例如上面这个常见的顺序迭代计算可以通过使用 mini-rayon 实现的并行迭代器即可将其转换为安全的并行运算。保证并行计算的安全性是使得并行计算框架变得简单易用的很重要的一部分原因。mini-rayon 所实现的并行迭代器将会负责决定如何将数据划分为任务，并通过动态调整来获得最佳性能。
 ## 四、框架根基 —— join 原语
@@ -72,19 +72,19 @@ join 在具体实现上使用了基于工作窃取机制的任务调度，其基
 这部分的伪代码如下：
 ```Rust
 fn join<A, B>(oper_a: A, oper_b: B)
-	where A: FnOnce() + Send,
-		  B: FnOnce() + Send,
+    where A: FnOnce() + Send,
+          B: FnOnce() + Send,
 {
-	let job = push_onto_local_queue(oper_b);
-	oper_a();
-	if pop_from_local_queue(oper_b) {
-		oper_b();
-	} else {
-		while not_yet_complete(job) {
-			steal_from_others();
-		}
-		result_b = job.result();
-	}
+    let job = push_onto_local_queue(oper_b);
+    oper_a();
+    if pop_from_local_queue(oper_b) {
+        oper_b();
+    } else {
+        while not_yet_complete(job) {
+            steal_from_others();
+        }
+        result_b = job.result();
+    }
 }
 ```
 基于工作窃取机制的任务调度能够自然地适应处理器的负载。当每个工作线程都非常忙碌时，join(a, b) 的逻辑上会退化成顺序执行每个闭包。这使得 join 原语的抽象并不会使其比顺序执行代码差，在存在可用线程的情况下，join 原语就可以获得并行性带来的性能提升。
