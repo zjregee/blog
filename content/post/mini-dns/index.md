@@ -110,7 +110,7 @@ DNS 报文通常采用 UDP 进行传输，报文长度限制为 512 字节。这
 
 在这一小节我们会通过 dig 命令行工具来直观的感受 DNS 协议的实际使用。dig 是一个用于查询 DNS 信息的网络工具，可以用于诊断网络问题，验证 DNS 配置以及获取与域名相关的信息。
 
-![1](1.png)
+![](1.png)
 
 可以看到 dig 明确描述了响应报文的 header、question section 和 answer section。header 中的 opcode 使用 OPCODE QUERY，对应于 0。status 也就是 RCODE，被设置为 NOERROR，对应于 0。id 为 4260，在重复查询时会随机更改。启用了 QR、RD、RA 标志位，它们的数值为 1。最后 header 还告诉了我们在 query section 和 answer section 分别有一个记录。answer section 显示了查询的结果，其中 IN 表示 class ，137 是 TTL，A 告诉我们在查询 A 记录，以及 google.com 的 IP 为 8.7.198.46。最后我们还知道了报文的总大小为 44 字节。
 ### 2.4 一些更复杂的现实
@@ -393,7 +393,7 @@ fn main() -> Result<()> {
 
 在这里，为了方便展示，我们直接使用第二种方式，即使用 dig 工具来直接测试 mini-dns。
 
-![2](2.png)
+![](2.png)
 
 可以看到，我们在运行 mini-dns 后，通过 dig -p 参数指定了查询的端口。dig 获取了正确的查询结果，mini-dns 在终端中也打印出了一些中间结果，验证了 mini-dns 在 DNS 解析流程中的正确性。
 ## 参考资料
