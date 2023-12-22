@@ -9,7 +9,9 @@ tags:
 ---
 
 > 本文是 mini 系列的第二篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文参考 Rust 语言的知名数据并行计算框架 Rayon 实现了一个小型的数据并行计算框架 mini-rayon，并基于 mini-rayon 进行了一系列的并行计算测试，取得了一定程度上的性能提升。
+> 
 > Rayon 项目地址：https://github.com/rayon-rs/rayon
+> 
 > mini-rayon 代码实现地址：https://github.com/zjregee/mini/mini-rayon
 ## 一、数据并行计算框架
 ### 1.1 并行计算框架介绍
