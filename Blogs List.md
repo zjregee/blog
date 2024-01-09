@@ -9,10 +9,10 @@
 * 2023.10.23：基于 bitcask 存储模型的 mini kv 数据库实现
 * 2023.11.03：mini-tokio Rust 异步运行时示例
 * 2023.11.10：Rust 异步运行时探秘
-* 2023.11.15：mini-monoio
 
 ### Waiting List
 
+* 2023.11.15：mini-monoio
 * 2023.12.01：Service Mesh 场景下的高性能进程间通讯库实现（一）
 * 2023.12.11：Service Mesh 场景下的高性能进程间通讯库实现（二）
 * 2023.12.31：Service Mesh 场景下的高性能进程间通讯库实现（三）
