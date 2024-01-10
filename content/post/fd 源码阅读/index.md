@@ -46,17 +46,17 @@ fd 作为一个强大、易用的检索工具，提供了多种过滤筛选的�
 ```Rust
 #[derive(Default)]
 pub struct FileTypes {
-	pub files: bool,
-	pub directories: bool,
-	pub symlinks: bool,
-	pub sockets: bool,
-	pub pipes: bool,
-	pub executables_only: bool,
-	pub empty_only: bool,
+    pub files: bool,
+    pub directories: bool,
+    pub symlinks: bool,
+    pub sockets: bool,
+    pub pipes: bool,
+    pub executables_only: bool,
+    pub empty_only: bool,
 }
 
 impl FileTypes {
-	pub fn should_ignore(&self, entry: &dir_entry::DirEntry) -> bool { ... }
+    pub fn should_ignore(&self, entry: &dir_entry::DirEntry) -> bool { ... }
 }
 ```
 
@@ -66,19 +66,19 @@ fd 通过 FileTypes 记录了需要在命令行展示文件和目录的类型。
 ```Rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OwnerFilter {
-	uid: Check<u32>,
-	gid: Check<u32>,
+    uid: Check<u32>,
+    gid: Check<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Check<T> {
-	Equal(T),
-	NotEq(T),
-	Ignore,
+    Equal(T),
+    NotEq(T),
+    Ignore,
 }
 
 impl OwnerFilter {
-	pub fn matches(&self, md: &fs::Metadata) -> bool { ... }
+    pub fn matches(&self, md: &fs::Metadata) -> bool { ... }
 }
 ```
 
@@ -88,13 +88,13 @@ fd 通过 OwnerFilter 记录需要在命令行展示文件和目录的权限范�
 ```Rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SizeFilter {
-	Max(u64),
-	Min(u64),
-	Equals(u64),
+    Max(u64),
+    Min(u64),
+    Equals(u64),
 }
 
 impl SizeFilter {
-	pub fn is_within(&self, size: u64) -> bool { ... }
+    pub fn is_within(&self, size: u64) -> bool { ... }
 }
 ```
 
@@ -104,12 +104,12 @@ fd 通过 SizeFilter 记录基于大小的筛选条件，并提供了 is_within 
 ```Rust
 #[derive(Debug, PartialEq, Eq)]
 pub enum TimeFilter {
-	Before(SystemTime),
-	After(SystemTime),
+    Before(SystemTime),
+    After(SystemTime),
 }
 
 impl TimeFilter {
-	pub fn applies_to(&self, t: &SystemTime) -> bool { ... }
+    pub fn applies_to(&self, t: &SystemTime) -> bool { ... }
 }
 ```
 
@@ -121,14 +121,14 @@ fd 通过 TimeFilter 记录基于时间的筛选条件，并提供了 applies_to
 
 ```Rust
 enum DirEntryInner {
-	Normal(ignore::DirEntry),
-	BrokenSymlink(PathBuf),
+    Normal(ignore::DirEntry),
+    BrokenSymlink(PathBuf),
 }
 
 pub struct DirEntry {
-	inner: DirEntryInner,
-	metadata: OnceCell<Option<Metadata>>,
-	style: OnceCell<Option<Style>>,
+    inner: DirEntryInner,
+    metadata: OnceCell<Option<Metadata>>,
+    style: OnceCell<Option<Style>>,
 }
 ```
 
@@ -139,35 +139,35 @@ fd 通过 DirEntry 保存在文件系统遍历过程中获取的文件和目录�
 ```Rust
 #[derive(PartialEq)]
 enum ReceiverMode {
-	Buffering,
-	Streaming,
+    Buffering,
+    Streaming,
 }
 
 #[allow(clippy::large_enum_variant)]
 pub enum WorkerResult {
-	Entry(DirEntry),
-	Error(ignore::Error),
+    Entry(DirEntry),
+    Error(ignore::Error),
 }
 
 struct ReceiverBuffer<W> {
-	config: Arc<Config>,
-	quit_flag: Arc<AtomicBool>,
-	interrupt_flag: Arc<AtomicBool>,
-	rx: Receiver<WorkerResult>,
-	stdout: W,
-	mode: ReceiverMode,
-	deadline: Instant,
-	buffer: Vec<DirEntry>,
-	num_results: usize,
+    config: Arc<Config>,
+    quit_flag: Arc<AtomicBool>,
+    interrupt_flag: Arc<AtomicBool>,
+    rx: Receiver<WorkerResult>,
+    stdout: W,
+    mode: ReceiverMode,
+    deadline: Instant,
+    buffer: Vec<DirEntry>,
+    num_results: usize,
 }
 
 impl<W: Write> ReceiverBuffer<W> {
-	fn process(&mut self) -> ExitCode { ... }
-	fn recv(&self) -> Result<WorkerResult, RecvTimeoutError> { ... }
-	fn poll(&mut self) -> Result<(), ExitCode> { ... }
-	fn print(&mut self, entry: &DirEntry) -> Result<(), ExitCode> { ... }
-	fn stream(&mut self) -> Result<(), ExitCode> { ... }
-	fn stop(&mut self) -> Result<(), ExitCode> { ... }
+    fn process(&mut self) -> ExitCode { ... }
+    fn recv(&self) -> Result<WorkerResult, RecvTimeoutError> { ... }
+    fn poll(&mut self) -> Result<(), ExitCode> { ... }
+    fn print(&mut self, entry: &DirEntry) -> Result<(), ExitCode> { ... }
+    fn stream(&mut self) -> Result<(), ExitCode> { ... }
+    fn stop(&mut self) -> Result<(), ExitCode> { ... }
 }
 ```
 
@@ -208,23 +208,23 @@ fd 还支持使用占位符语法将命令作为一种模版而不是单个字�
 ```Rust
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-	Placeholder,
-	Basename,
-	Parent,
-	NoExt,
-	BasenameNoExt,
-	Text(String),
+    Placeholder,
+    Basename,
+    Parent,
+    NoExt,
+    BasenameNoExt,
+    Text(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum ArgumentTemplate {
-	Tokens(Vec<Token>),
-	Text(String),
+    Tokens(Vec<Token>),
+    Text(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct CommandTemplate {
-	args: Vec<ArgumentTemplate>,
+    args: Vec<ArgumentTemplate>,
 }
 ```
 
@@ -234,46 +234,44 @@ Token 代表着占位符的类型，ArgumentTemplate 是命令的参数单元，
 ```Rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
-	OneByOne,
-	Batch,
+    OneByOne,
+    Batch,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandSet {
-	mode: ExecutionMode,
-	commands: Vec<CommandTemplate>,
+    mode: ExecutionMode,
+    commands: Vec<CommandTemplate>,
 }
 
 impl CommandSet {
-	pub fn new<I, T, S>(input: I) -> Result<CommandSet>
-	where
-		I: IntoIterator<Item = T>,
-		T: IntoIterator<Item = S>,
-		S: AsRef<str>,
-	{ ... }
+    pub fn new<I, T, S>(input: I) -> Result<CommandSet>
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    { ... }
 
-	pub fn new_batch<I, T, S>(input: I) -> Result<CommandSet>
-	where
-		I: IntoIterator<Item = T>,
-		T: IntoIterator<Item = S>,
-		S: AsRef<str>,
-	{ ... }
+    pub fn new_batch<I, T, S>(input: I) -> Result<CommandSet>
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    { ... }
 
-	pub fn execute(
-		&self,
-		input: &Path,
-		path_separator: Option<&str>,
-		out_perm: Arc<Mutex<()>>,
-		buffer_output: bool
-	) -> ExitCode { ... },
+    pub fn execute(
+        &self,
+        input: &Path,
+        path_separator: Option<&str>,
+        out_perm: Arc<Mutex<()>>,
+        buffer_output: bool
+    ) -> ExitCode { ... },
 
-	pub fn execute_batch<I>(&self, paths: I, limit: usize, path_separator: Option<&str>) -> ExitCode
-	where
-		I: Iterator<Item = PathBuf>,
-	{ ... }
+    pub fn execute_batch<I>(&self, paths: I, limit: usize, path_separator: Option<&str>) -> ExitCode
+    where
+        I: Iterator<Item = PathBuf>,
+    { ... }
 }
-
-
 ```
 
 CommandSet 代表 fd 需要执行的命令集合。CommandSet 有两种执行模式，OneByOne 和 Batch 模式。
@@ -282,18 +280,18 @@ CommandSet 代表 fd 需要执行的命令集合。CommandSet 有两种执行模
 ```Rust
 #[derive(Debug)]
 struct CommandBuilder {
-	pre_args: Vec<OsString>,
-	path_arg: ArgumentTemplate,
-	post_args: Vec<OsString>,
-	cmd: Command,
-	count: usize,
-	limit: usize,
-	exit_code: ExitCode,
+    pre_args: Vec<OsString>,
+    path_arg: ArgumentTemplate,
+    post_args: Vec<OsString>,
+    cmd: Command,
+    count: usize,
+    limit: usize,
+    exit_code: ExitCode,
 }
 
 impl CommandBuilder {
-	fn push(&mut self, path: &Path, separator: Option<&str>) -> io::Result<()> { ... }
-	fn finish(&mut self) -> io::Result<()> { ... }
+    fn push(&mut self, path: &Path, separator: Option<&str>) -> io::Result<()> { ... }
+    fn finish(&mut self) -> io::Result<()> { ... }
 }
 ```
 

@@ -70,12 +70,12 @@ Rayon 是 Rust 中流行的数据并行计算框架，旨在简化并行编程�
 
 ```Rust
 let total_price = stores.iter()
-						.map(|store| store.compute_price(&list))
-						.sum();
+                        .map(|store| store.compute_price(&list))
+                        .sum();
 
 let total_price = stores.par_iter()
-						.map(|store| store.compute_price(&list))
-						.sum();
+                        .map(|store| store.compute_price(&list))
+                        .sum();
 ```
 
 mini-rayon 参考 Rayon 实现了一个轻量级的数据并行计算框架，可以轻松地将顺序计算转换为并行计算。例如上面这个常见的顺序迭代计算可以通过使用 mini-rayon 实现的并行迭代器即可将其转换为安全的并行运算。保证并行计算的安全性是使得并行计算框架变得简单易用的很重要的一部分原因。mini-rayon 所实现的并行迭代器将会负责决定如何将数据划分为任务，并通过动态调整来获得最佳性能。
@@ -95,12 +95,12 @@ join(|| do_something(), || do_someting_else())
 fn partition<T:PartialOrd+Send>(v: &mut [T]) -> usize { ... }
 
 fn quick_sort<T:PartialOrd + Send>(v: &mut [T]) {
-	if v.len() > 1 {
-		let mid = partition(v);
-		let (lo, hi) = v.split_at_mut(mid);
-		quick_sort(lo);
-		quick_sort(hi));
-	}
+    if v.len() > 1 {
+        let mid = partition(v);
+        let (lo, hi) = v.split_at_mut(mid);
+        quick_sort(lo);
+        quick_sort(hi));
+    }
 }
 ```
 
@@ -108,12 +108,12 @@ fn quick_sort<T:PartialOrd + Send>(v: &mut [T]) {
 
 ``` Rust
 fn quick_sort<T:PartialOrd + Send>(v: &mut [T]) {
-	if v.len() > 1 {
-		let mid = partition(v);
-		let (lo, hi) = v.split_at_mut(mid);
-		quick_sort(lo);
-		quick_sort(hi));
-	}
+    if v.len() > 1 {
+        let mid = partition(v);
+        let (lo, hi) = v.split_at_mut(mid);
+        quick_sort(lo);
+        quick_sort(hi));
+    }
 }
 ```
 ### 4.3 join 原语中的任务调度
@@ -122,19 +122,19 @@ join 在具体实现上使用了基于工作窃取机制的任务调度，其基
 
 ```Rust
 fn join<A, B>(oper_a: A, oper_b: B)
-	where A: FnOnce() + Send,
-		  B: FnOnce() + Send,
+where A: FnOnce() + Send,
+      B: FnOnce() + Send,
 {
-	let job = push_onto_local_queue(oper_b);
-	oper_a();
-	if pop_from_local_queue(oper_b) {
-		oper_b();
-	} else {
-		while not_yet_complete(job) {
-			steal_from_others();
-		}
-		result_b = job.result();
-	}
+    let job = push_onto_local_queue(oper_b);
+    oper_a();
+    if pop_from_local_queue(oper_b) {
+        oper_b();
+    } else {
+        while not_yet_complete(job) {
+            steal_from_others();
+        }
+        result_b = job.result();
+    }
 }
 ```
 
@@ -144,17 +144,17 @@ fn join<A, B>(oper_a: A, oper_b: B)
 
 ```Rust
 pub trait Executable {
-	fn execute(&mut self);
+    fn execute(&mut self);
 }
 
 pub struct Code<F, R> {
-	func: Option<F>,
-	dest: *mut Option<R>,
+    func: Option<F>,
+    dest: *mut Option<R>,
 }
 
 pub struct Job {
-	code: Box<dyn Executable>,
-	latch: Arc<Latch>,
+    code: Box<dyn Executable>,
+    latch: Arc<Latch>,
 }
 
 unsafe impl Send for Job { }
@@ -166,22 +166,22 @@ unsafe impl Sync for Job { }
 ```Rust
 impl<F, R> Executable for Code<F, R>
 where
-	F: FnOnce() -> R,
+    F: FnOnce() -> R,
 {
-	fn execute(&mut self) {
-		if let Some(func) = self.func.take() {
-			unsafe {
-				*self.dest = Some(func());
-			}
-		}
-	}
+    fn execute(&mut self) {
+        if let Some(func) = self.func.take() {
+            unsafe {
+                *self.dest = Some(func());
+            }
+        }
+    }
 }
 
 impl Job {
-	pub fn execute(&mut self) {
-		self.code.execute();
-		self.latch.set();
-	}
+    pub fn execute(&mut self) {
+        self.code.execute();
+        self.latch.set();
+    }
 }
 
 ```
@@ -191,15 +191,15 @@ impl Job {
 
 ```Rust
 struct RegistryState {
-	threads_at_work: usize,
-	injected_jobs: Vec<Job>,
+    threads_at_work: usize,
+    injected_jobs: Vec<Job>,
 }
 
 pub struct Registry {
-	thread_infos: Vec<ThreadInfo>,
-	state: Mutex<RegistryState>,
-	work_available: Condvar,
-	terminated: AtomicBool,
+    thread_infos: Vec<ThreadInfo>,
+    state: Mutex<RegistryState>,
+    work_available: Condvar,
+    terminated: AtomicBool,
 }
 
 unsafe impl Send for Registry { }
@@ -210,33 +210,33 @@ Registry 负责管理所有工作线程以及任务，因为 Registry 可能需�
 
 ```Rust
 impl Registry {
-	pub fn inject(&self, injected_jobs: Vec<Job>) {
-		let mut state = self.state.lock().unwrap();
-		state.injected_jobs.extend(injected_jobs);
-		self.work_available.notify_all();
-	}
-	
-	fn start_working(&self) {
-		let mut state = self.state.lock().unwrap();
-		state.threads_at_work += 1;
-		self.work_available.notify_all();
-	}
-	
-	fn wait_for_work(&self, was_active: bool) -> Option<Job> {
-		let mut state = self.state.lock().unwrap();
-		if was_active {
-			state.threads_at_work -= 1;
-		}
-		loop {
-			if let Some(job) = state.injected_jobs.pop() {
-				return Some(job);
-			}
-			if state.threads_at_work > 0 {
-				return None;
-			}
-			state = self.work_available.wait(state).unwrap();
-		}
-	}
+    pub fn inject(&self, injected_jobs: Vec<Job>) {
+        let mut state = self.state.lock().unwrap();
+        state.injected_jobs.extend(injected_jobs);
+        self.work_available.notify_all();
+    }
+
+    fn start_working(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.threads_at_work += 1;
+        self.work_available.notify_all();
+    }
+
+    fn wait_for_work(&self, was_active: bool) -> Option<Job> {
+        let mut state = self.state.lock().unwrap();
+        if was_active {
+            state.threads_at_work -= 1;
+        }
+        loop {
+            if let Some(job) = state.injected_jobs.pop() {
+                return Some(job);
+            }
+            if state.threads_at_work > 0 {
+                return None;
+            }
+            state = self.work_available.wait(state).unwrap();
+        }
+    }
 }
 ```
 
@@ -245,18 +245,18 @@ Registry 的主要函数包括 inject、start_working 和 wait_for_work。inject
 
 ```Rust
 struct ThreadInfo {
-	primed: Latch,
-	worker: Worker<Job>,
-	stealer: Stealer<Job>,
+    primed: Latch,
+    worker: Worker<Job>,
+    stealer: Stealer<Job>,
 }
 
 pub struct WorkerThread {
-	registry: Arc<Registry>,
-	index: usize,
+    registry: Arc<Registry>,
+    index: usize,
 }
 
 thread_local! {
-	static WORKER_THREAD_STATE: RefCell<Option<Arc<WorkerThread>>> = RefCell::new(None);
+    static WORKER_THREAD_STATE: RefCell<Option<Arc<WorkerThread>>> = RefCell::new(None);
 }
 ```
 
@@ -264,23 +264,23 @@ WorkerThread 对应工作线程的数据结构，在 WorkerThread 中保存了�
 
 ```Rust
 impl WorkerThread {
-	pub fn push(&self, job: Job) {
-		self.registry.thread_infos[self.index].worker.push(job);
-	}
-	
-	pub fn pop(&self) -> Option<Job> {
-		self.registry.thread_infos[self.index].worker.pop()
-	}
-	
-	pub fn steal_until(&self, latch: Arc<Latch>) {
-		while !latch.probe() {
-			if let Some(mut job) = steal_work(self.registry.clone(), self.index) {
-				job.execute();
-			} else {
-				thread::yield_now();
-			}
-		}
-	}
+    pub fn push(&self, job: Job) {
+        self.registry.thread_infos[self.index].worker.push(job);
+    }
+
+    pub fn pop(&self) -> Option<Job> {
+        self.registry.thread_infos[self.index].worker.pop()
+    }
+
+    pub fn steal_until(&self, latch: Arc<Latch>) {
+        while !latch.probe() {
+            if let Some(mut job) = steal_work(self.registry.clone(), self.index) {
+                job.execute();
+            } else {
+                thread::yield_now();
+            }
+        }
+    }
 }
 ```
 
@@ -294,49 +294,49 @@ WorkerThread 提供的主要函数包括 push、pop 和 steal_until。push 用�
 ```Rust
 pub fn join<A, RA, B, RB>(oper_a: A, oper_b: B) -> (RA, RB)
 where
-	A: FnOnce() -> RA + Send + 'static,
-	B: FnOnce() -> RB + Send + 'static,
-	RA: Send + 'static,
-	RB: Send + 'static,
+    A: FnOnce() -> RA + Send + 'static,
+    B: FnOnce() -> RB + Send + 'static,
+    RA: Send + 'static,
+    RB: Send + 'static,
 {
-	let worker_thread = WorkerThread::current();
-	if worker_thread.is_none() {
-		return join_inject(oper_a, oper_b);
-	}
-	let worker_thread = worker_thread.unwrap();
-	let mut result_b = None;
-	let code_b = Code::new(oper_b, &mut result_b as *mut Option<RB>);
-	let latch_b = Arc::new(Latch::new());
-	let job_b = Job::new(Box::new(code_b), latch_b.clone());
-	worker_thread.push(job_b);
-	let result_a = oper_a();
-	if let Some(mut job_b) = worker_thread.pop() {
-		job_b.execute();
-	} else {
-		worker_thread.steal_until(latch_b);
-	}
-	(result_a, result_b.unwrap())
+    let worker_thread = WorkerThread::current();
+    if worker_thread.is_none() {
+        return join_inject(oper_a, oper_b);
+    }
+    let worker_thread = worker_thread.unwrap();
+    let mut result_b = None;
+    let code_b = Code::new(oper_b, &mut result_b as *mut Option<RB>);
+    let latch_b = Arc::new(Latch::new());
+    let job_b = Job::new(Box::new(code_b), latch_b.clone());
+    worker_thread.push(job_b);
+    let result_a = oper_a();
+    if let Some(mut job_b) = worker_thread.pop() {
+        job_b.execute();
+    } else {
+        worker_thread.steal_until(latch_b);
+    }
+    (result_a, result_b.unwrap())
 }
 
 fn join_inject<A, RA, B, RB>(oper_a: A, oper_b: B) -> (RA, RB)
 where
-	A: FnOnce() -> RA + Send + 'static,
-	B: FnOnce() -> RB + Send + 'static,
-	RA: Send + 'static,
-	RB: Send + 'static,
+    A: FnOnce() -> RA + Send + 'static,
+    B: FnOnce() -> RB + Send + 'static,
+    RA: Send + 'static,
+    RB: Send + 'static,
 {
-	let mut result_a = None;
-	let code_a = Code::new(oper_a, &mut result_a as *mut Option<RA>);
-	let latch_a = Arc::new(Latch::new());
-	let job_a = Job::new(Box::new(code_a), latch_a.clone());
-	let mut result_b = None;
-	let code_b = Code::new(oper_b, &mut result_b as *mut Option<RB>);
-	let latch_b = Arc::new(Latch::new());
-	let job_b = Job::new(Box::new(code_b), latch_b.clone());
-	get_registry().inject(vec![job_a, job_b]);
-	latch_a.wait();
-	latch_b.wait();
-	(result_a.unwrap(), result_b.unwrap())
+    let mut result_a = None;
+    let code_a = Code::new(oper_a, &mut result_a as *mut Option<RA>);
+    let latch_a = Arc::new(Latch::new());
+    let job_a = Job::new(Box::new(code_a), latch_a.clone());
+    let mut result_b = None;
+    let code_b = Code::new(oper_b, &mut result_b as *mut Option<RB>);
+    let latch_b = Arc::new(Latch::new());
+    let job_b = Job::new(Box::new(code_b), latch_b.clone());
+    get_registry().inject(vec![job_a, job_b]);
+    latch_a.wait();
+    latch_b.wait();
+    (result_a.unwrap(), result_b.unwrap())
 }
 ```
 
@@ -351,37 +351,37 @@ join 函数接受两个满足 FnOnce() -> R + Send + 'static trait bound 的闭�
 
 ```Rust
 pub struct ThreadPool {
-	registry: Arc<Registry>,
+    registry: Arc<Registry>,
 }
 
 impl ThreadPool {
-	pub fn new() -> ThreadPool {
-		let registry = Registry::new();
-		registry.wait_until_primed();
-		ThreadPool {
-			registry,
-		}
-	}
+    pub fn new() -> ThreadPool {
+        let registry = Registry::new();
+        registry.wait_until_primed();
+        ThreadPool {
+            registry,
+        }
+    }
 
-	pub fn install<OP, R>(&self, op: OP) -> R
-	where
-		OP: FnOnce() -> R + Send + 'static,
-		R: Send + 'static,
-	{
-		let mut result = None;
-		let code = Code::new(op, &mut result as *mut Option<R>);
-		let latch = Arc::new(Latch::new());
-		let job = Job::new(Box::new(code), latch.clone());
-		self.registry.inject(vec![job]);
-		latch.wait();
-		result.unwrap()
-	}
+    pub fn install<OP, R>(&self, op: OP) -> R
+    where
+        OP: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let mut result = None;
+        let code = Code::new(op, &mut result as *mut Option<R>);
+        let latch = Arc::new(Latch::new());
+        let job = Job::new(Box::new(code), latch.clone());
+        self.registry.inject(vec![job]);
+        latch.wait();
+        result.unwrap()
+    }
 }
 
 impl Drop for ThreadPool {
-	fn drop(&mut self) {
-		self.registry.terminate();
-	}
+    fn drop(&mut self) {
+        self.registry.terminate();
+    }
 }
 ```
 ### 4.6 Rust feature 带来的优势
@@ -406,12 +406,12 @@ mini-rayon 通过 Rust feature 可以使得在向顺序代码添加并行性时�
 
 ```Rust
 fn quick_sort<T:PartialOrd+Send>(v: &mut [T]) {
-	if v.len() > 1 {
-		let mid = partition(v);
-		let (lo, hi) = v.split_at_mut(mid);
-		mini_rayon::join(|| quick_sort(lo),
-						 || quick_sort(lo));
-	}
+    if v.len() > 1 {
+        let mid = partition(v);
+        let (lo, hi) = v.split_at_mut(mid);
+        mini_rayon::join(|| quick_sort(lo),
+                         || quick_sort(lo));
+    }
 }
 ```
 
@@ -419,8 +419,8 @@ fn quick_sort<T:PartialOrd+Send>(v: &mut [T]) {
 
 ```Rust
 fn share_rc<T:PartialOrd+Send>(rc: Rc<i32> {
-	mini_rayon::join(|| something(rc.clone()),
-					 || something(rc.clone()));
+    mini_rayon::join(|| something(rc.clone()),
+                     || something(rc.clone()));
 }
 ```
 
@@ -433,11 +433,11 @@ fn share_rc<T:PartialOrd+Send>(rc: Rc<i32> {
 
 ```Rust
 pub trait ParallelIterator {
-	type Item;
-	type Shared: Sync;
-	type State: ParallelIteratorState<Shared=Self::Shared, Item=Self::Item> + Send;
+    type Item;
+    type Shared: Sync;
+    type State: ParallelIteratorState<Shared=Self::Shared, Item=Self::Item> + Send;
 	
-	fn state(self) -> (Self::Shared, Self::State);
+    fn state(self) -> (Self::Shared, Self::State);
 }
 ```
 
@@ -445,15 +445,15 @@ pub trait ParallelIterator {
 
 ```Rust
 pub trait ParallelIteratorState: Sized {
-	type Item;
-	type Shared: Sync;
+    type Item;
+    type Shared: Sync;
 
-	fn len(&mut self) -> ParallelLen;
+    fn len(&mut self) -> ParallelLen;
 
-	fn split_at(self, index: usize) -> (Self, Self);
+    fn split_at(self, index: usize) -> (Self, Self);
 
-	fn for_each<OP>(self, shared: &Self::Shared, op: OP)
-		where OP: FnMut(Self::Item);
+    fn for_each<OP>(self, shared: &Self::Shared, op: OP)
+    where OP: FnMut(Self::Item);
 }
 ```
 
@@ -461,15 +461,15 @@ ParallelteratorState trait 表示剩余工作的一部分，例如要处理的�
 
 ```Rust
 fn process(shared, state) {
-	if state.len() is too big {
-		let midpoint = state.len() / 2;
-		let (state1, state2) = state.split_at(midpoint);
-		rayon::join(|| process(shared, state1), || process(shared, state2));
-	} else {
-		state.for_each(|item| {
-			// process item
-		})
-	}
+    if state.len() is too big {
+        let midpoint = state.len() / 2;
+        let (state1, state2) = state.split_at(midpoint);
+        rayon::join(|| process(shared, state1), || process(shared, state2));
+    } else {
+        state.for_each(|item| {
+            // process item
+        })
+    }
 }
 ```
 
@@ -481,75 +481,75 @@ fn process(shared, state) {
 ```Rust
 fn partition<T>(v: &mut [T]) -> usize
 where
-	T: PartialOrd + Send + 'static
+    T: PartialOrd + Send + 'static
 {
-	let pivot = v.len() - 1;
-	let mut i = 0;
-	for j in 0..pivot {
-		if v[j] <= v[pivot] {
-			v.swap(i, j);
-			i += 1;
-		}
-	}
-	v.swap(i, pivot);
-	i
+    let pivot = v.len() - 1;
+    let mut i = 0;
+    for j in 0..pivot {
+        if v[j] <= v[pivot] {
+            v.swap(i, j);
+            i += 1;
+        }
+    }
+    v.swap(i, pivot);
+    i
 }
 
 fn quick_sort<T>(v: &mut [T])
 where
-	T: PartialOrd + Send + 'static
+    T: PartialOrd + Send + 'static
 {
-	if v.len() <= 1 {
-		return;
-	}
-	let mid = partition(v);
-	let (lo, hi) = v.split_at_mut(mid);
-	quick_sort(lo);
-	quick_sort(hi);
+    if v.len() <= 1 {
+        return;
+    }
+    let mid = partition(v);
+    let (lo, hi) = v.split_at_mut(mid);
+    quick_sort(lo);
+    quick_sort(hi);
 }
 
 fn quick_sort_parallel_by_spawn<T>(v: &'static mut [T])
 where
-	T: PartialOrd + Send + 'static
+    T: PartialOrd + Send + 'static
 {
-	if v.len() <= 200 {
-		quick_sort(v);
-		return;
-	}
-	let mid = partition(v);
-	let (lo, hi) = v.split_at_mut(mid);
-	let lo_handle = thread::spawn(|| quick_sort_parallel_by_spawn(lo));
-	let hi_handle = thread::spawn(|| quick_sort_parallel_by_spawn(hi));
-	lo_handle.join().unwrap();
-	hi_handle.join().unwrap();
+    if v.len() <= 200 {
+        quick_sort(v);
+        return;
+    }
+    let mid = partition(v);
+    let (lo, hi) = v.split_at_mut(mid);
+    let lo_handle = thread::spawn(|| quick_sort_parallel_by_spawn(lo));
+    let hi_handle = thread::spawn(|| quick_sort_parallel_by_spawn(hi));
+    lo_handle.join().unwrap();
+    hi_handle.join().unwrap();
 }
 
 fn quick_sort_parallel_by_threadpool<T>(pool: &ThreadPool, v: &'static mut [T])
 where
-	T: PartialOrd + Send + 'static
+    T: PartialOrd + Send + 'static
 {
-	if v.len() <= 200 {
-		quick_sort(v);
-		return;
-	}
-	let mid = partition(v);
-	let (lo, hi) = v.split_at_mut(mid);
-	pool.execute(|| quick_sort_parallel_by_spawn(lo));
-	pool.execute(|| quick_sort_parallel_by_spawn(hi));
-	pool.join();
+    if v.len() <= 200 {
+        quick_sort(v);
+        return;
+    }
+    let mid = partition(v);
+    let (lo, hi) = v.split_at_mut(mid);
+    pool.execute(|| quick_sort_parallel_by_spawn(lo));
+    pool.execute(|| quick_sort_parallel_by_spawn(hi));
+    pool.join();
 }
 
 fn quick_sort_parallel_by_mini_rayon<T>(v: &'static mut [T])
 where
-	T: PartialOrd + Send + 'static
+    T: PartialOrd + Send + 'static
 {
-	if v.len() <= 200 {
-		quick_sort(v);
-		return;
-	}
-	let mid = partition(v);
-	let (lo, hi) = v.split_at_mut(mid);
-	join(|| quick_sort_parallel_by_mini_rayon(lo), || quick_sort_parallel_by_mini_rayon(hi));
+    if v.len() <= 200 {
+        quick_sort(v);
+        return;
+    }
+    let mid = partition(v);
+    let (lo, hi) = v.split_at_mut(mid);
+    join(|| quick_sort_parallel_by_mini_rayon(lo), || quick_sort_parallel_by_mini_rayon(hi));
 }
 ```
 

@@ -3,7 +3,7 @@ title: Rust 异步运行时探秘
 slug: tokio
 date: 2023-11-10 00:00:00+0000
 categories:
-    - 学习笔记
+    - 学习笔记系列
 tags:
     - Rust
 ---

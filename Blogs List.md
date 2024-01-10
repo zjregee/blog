@@ -12,7 +12,6 @@
 
 ### Waiting List
 
-* 2023.11.15：mini-monoio
 * 2023.12.01：Service Mesh 场景下的高性能进程间通讯库实现（一）
 * 2023.12.11：Service Mesh 场景下的高性能进程间通讯库实现（二）
 * 2023.12.31：Service Mesh 场景下的高性能进程间通讯库实现（三）

@@ -169,12 +169,12 @@ d.gtld-servers.net. 172800  IN  A       192.31.80.30
 ```Rust
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum QueryType {
-	UNKNOWN(u16),
-	A,
-	NS,
-	CNAME,
-	MX,
-	AAAA,
+    UNKNOWN(u16),
+    A,
+    NS,
+    CNAME,
+    MX,
+    AAAA,
 }
 ```
 
@@ -183,52 +183,52 @@ DNS 记录类型非常多，其中一部分在现实中几乎不会被使用，�
 
 ```Rust
 pub struct BytePacketBuffer {
-	pub buf: [u8; 512],
-	pub pos: usize,
+    pub buf: [u8; 512],
+    pub pos: usize,
 }
 
 impl BytePacketBuffer {
-	pub fn new() -> BytePacketBuffer { }
+    pub fn new() -> BytePacketBuffer { }
 	
-	pub fn pos(&self) -> usize {
-		self.pos
-	}
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
 	
-	pub fn step(&mut self, steps: usize) -> Result<()> {
-		self.pos += steps;
-		Ok(())
-	}
+    pub fn step(&mut self, steps: usize) -> Result<()> {
+        self.pos += steps;
+        Ok(())
+    }
 	
-	pub fn seek(&mut self, pos: usize) -> Result<()> {
-		self.pos = pos;
-		Ok(())
-	}
+    pub fn seek(&mut self, pos: usize) -> Result<()> {
+        self.pos = pos;
+        Ok(())
+    }
 	
-	pub fn read(&mut self) -> Result<u8> { }
+    pub fn read(&mut self) -> Result<u8> { }
 	
-	pub fn get(&mut self, pos: usize) -> Result<u8> { }
+    pub fn get(&mut self, pos: usize) -> Result<u8> { }
 	
-	pub fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8]> { }
+    pub fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8]> { }
 	
-	pub fn read_u16(&mut self) -> Result<u16> { }
+    pub fn read_u16(&mut self) -> Result<u16> { }
 	
-	pub fn read_u32(&mut self) -> Result<u32> { }
+    pub fn read_u32(&mut self) -> Result<u32> { }
 	
-	pub fn read_qname(&mut self, outstr: &mut String) -> Result<()> { }
+    pub fn read_qname(&mut self, outstr: &mut String) -> Result<()> { }
 	
-	pub fn write(&mut self, val: u8) -> Result<()> { }
+    pub fn write(&mut self, val: u8) -> Result<()> { }
 	
-	pub fn write_u8(&mut self, val: u8) -> Result<()> { }
+    pub fn write_u8(&mut self, val: u8) -> Result<()> { }
 	
-	pub fn write_u16(&mut self, val: u16) -> Result<()> { }
+    pub fn write_u16(&mut self, val: u16) -> Result<()> { }
 	
-	pub fn write_u32(&mut self, val: u32) -> Result<()> { }
+    pub fn write_u32(&mut self, val: u32) -> Result<()> { }
 	
-	pub fn write_qname(&mut self, qname: &str) -> Result<()> { }
+    pub fn write_qname(&mut self, qname: &str) -> Result<()> { }
 	
-	pub fn set(&mut self, pos: usize, val: u8) -> Result<()> { }
+    pub fn set(&mut self, pos: usize, val: u8) -> Result<()> { }
 	
-	pub fn set_u16(&mut self, pos: usize, val: u16) -> Result<()> { }
+    pub fn set_u16(&mut self, pos: usize, val: u16) -> Result<()> { }
 }
 ```
 
@@ -238,27 +238,27 @@ impl BytePacketBuffer {
 ```Rust
 #[derive(Clone, Debug)]
 pub struct Header {
-	pub id: u16,
-	pub recursion_desired: bool,
-	pub truncated_message: bool,
-	pub authoritative_answer: bool,
-	pub opcode: u8,
-	pub response: bool,
-	pub rescode: ResultCode,
-	pub checking_disabled: bool,
-	pub authed_data: bool,
-	pub z: bool,
-	pub recursion_available: bool,
-	pub questions: u16,
-	pub answers: u16,
-	pub authoritative_entries: u16,
-	pub resource_entries: u16,
+    pub id: u16,
+    pub recursion_desired: bool,
+    pub truncated_message: bool,
+    pub authoritative_answer: bool,
+    pub opcode: u8,
+    pub response: bool,
+    pub rescode: ResultCode,
+    pub checking_disabled: bool,
+    pub authed_data: bool,
+    pub z: bool,
+    pub recursion_available: bool,
+    pub questions: u16,
+    pub answers: u16,
+    pub authoritative_entries: u16,
+    pub resource_entries: u16,
 }
 
 impl Header {
-	pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
+    pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
 	
-	pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> { }
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> { }
 }
 ```
 
@@ -268,14 +268,14 @@ impl Header {
 ```Rust
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Question {
-	pub name: String,
-	pub qtype: QueryType,
+    pub name: String,
+    pub qtype: QueryType,
 }
 
 impl Question {
-	pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
+    pub fn read(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
 	
-	pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> { }
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<()> { }
 }
 ```
 
@@ -285,44 +285,44 @@ Question 内存数据结构表示 DNS 数据报文的 Question Section，同样�
 ```Rust
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Record {
-	UNKNOWN {
-		domain: String,
-		qtype: u16,
-		data_len: u16,
-		ttl: u32,
-	}, // 0
-	A {
-		domain: String,
-		addr: Ipv4Addr,
-		ttl: u32,
-	}, // 1
-	NS {
-		domain: String,
-		host: String,
-		ttl: u32,
-	}, // 2
-	CNAME {
-		domain: String,
-		host: String,
-		ttl: u32,
-	}, // 5
-	MX {
-		domain: String,
-		priority: u16,
-		host: String,
-		ttl: u32,
-	}, // 15
-	AAAA {
-		domain: String,
-		addr: Ipv6Addr,
-		ttl: u32,
-	}, // 28
+    UNKNOWN {
+        domain: String,
+        qtype: u16,
+        data_len: u16,
+        ttl: u32,
+    }, // 0
+    A {
+        domain: String,
+        addr: Ipv4Addr,
+        ttl: u32,
+    }, // 1
+    NS {
+        domain: String,
+        host: String,
+        ttl: u32,
+    }, // 2
+    CNAME {
+        domain: String,
+        host: String,
+        ttl: u32,
+    }, // 5
+    MX {
+        domain: String,
+        priority: u16,
+        host: String,
+        ttl: u32,
+    }, // 15
+    AAAA {
+        domain: String,
+        addr: Ipv6Addr,
+        ttl: u32,
+    }, // 28
 }
 
 impl Record {
-	pub fn read(buffer: &mut BytePacketBuffer) -> Result<Record> { }
+    pub fn read(buffer: &mut BytePacketBuffer) -> Result<Record> { }
 	
-	pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<usize> { }
+    pub fn write(&self, buffer: &mut BytePacketBuffer) -> Result<usize> { }
 }
 ```
 
@@ -332,17 +332,17 @@ Record 内存数据结构对应 DNS 数据报文中的单个记录，并且由�
 ```Rust
 #[derive(Clone, Debug)]
 pub struct Packet {
-	pub header: Header,
-	pub questions: Vec<Question>,
-	pub answers: Vec<Record>,
-	pub authorities: Vec<Record>,
-	pub resources: Vec<Record>,
+    pub header: Header,
+    pub questions: Vec<Question>,
+    pub answers: Vec<Record>,
+    pub authorities: Vec<Record>,
+    pub resources: Vec<Record>,
 }
 
 impl Packet {
-	pub fn from_buffer(buffer: &mut BytePacketBuffer) -> Result<Packet> { }
+    pub fn from_buffer(buffer: &mut BytePacketBuffer) -> Result<Packet> { }
 	
-	pub fn write(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
+    pub fn write(&mut self, buffer: &mut BytePacketBuffer) -> Result<()> { }
 }
 ```
 
@@ -352,19 +352,19 @@ impl Packet {
 
 ```Rust
 fn lookup(qname: &str, qtype: QueryType) -> Result<Packet> {
-	let server = ("8.8.8.8", 53);
-	let socket = UdpSocket::bind(("0.0.0.0", 43210))?;
-	let mut packet = Packet::new();
-	packet.header.id = 6666;
-	packet.header.questions = 1;
-	packet.header.recursion_desired = true;
-	packet.questions.push(Question::new(qname.to_string(), qtype));
-	let mut req_buffer = BytePacketBuffer::new();
-	packet.write(&mut req_buffer)?;
-	socket.send_to(&req_buffer.buf[0..req_buffer.pos], server)?;
-	let mut res_buffer = BytePacketBuffer::new();
-	socket.recv_from(&mut res_buffer.buf)?;
-	Packet::from_buffer(&mut res_buffer)
+    let server = ("8.8.8.8", 53);
+    let socket = UdpSocket::bind(("0.0.0.0", 43210))?;
+    let mut packet = Packet::new();
+    packet.header.id = 6666;
+    packet.header.questions = 1;
+    packet.header.recursion_desired = true;
+    packet.questions.push(Question::new(qname.to_string(), qtype));
+    let mut req_buffer = BytePacketBuffer::new();
+    packet.write(&mut req_buffer)?;
+    socket.send_to(&req_buffer.buf[0..req_buffer.pos], server)?;
+    let mut res_buffer = BytePacketBuffer::new();
+    socket.recv_from(&mut res_buffer.buf)?;
+    Packet::from_buffer(&mut res_buffer)
 }
 ```
 
@@ -374,13 +374,13 @@ fn lookup(qname: &str, qtype: QueryType) -> Result<Packet> {
 fn handle_query(socket: &UdpSocket) -> Result<()> { }
 
 fn main() -> Result<()> {
-	let socket = UdpSocket::bind(("0.0.0.0", 2053))?;
-	loop {
-		match handle_query(&socket) {
-			Ok(_) => {}
-			Err(e) => eprintln!("An error occurred: {}", e),
-		}
-	}
+    let socket = UdpSocket::bind(("0.0.0.0", 2053))?;
+    loop {
+        match handle_query(&socket) {
+            Ok(_) => {}
+            Err(e) => eprintln!("An error occurred: {}", e),
+        }
+    }
 }
 ```
 
