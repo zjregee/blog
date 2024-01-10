@@ -1,6 +1,7 @@
 ---
 title: 数据并行计算框架 mini-rayon 实现
 slug: mini-rayon
+image: cover.jpg
 date: 2023-09-28 00:00:00+0000
 categories:
     - mini 系列

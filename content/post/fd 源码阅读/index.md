@@ -1,6 +1,7 @@
 ---
 title: 新一代文件系统检索命令行工具 fd 源码阅读
 slug: fd
+image: cover.jpg
 date: 2023-08-17 00:00:00+0000
 categories:
     - 源码阅读系列

@@ -1,6 +1,7 @@
 ---
 title: Rust 异步运行时探秘
 slug: tokio
+image: cover.jpg
 date: 2023-11-10 00:00:00+0000
 categories:
     - 学习笔记系列
