@@ -9,6 +9,8 @@
 * 2023.10.23：基于 bitcask 存储模型的 mini kv 数据库实现
 * 2023.11.03：mini-tokio Rust 异步运行时示例
 * 2023.11.10：Rust 异步运行时探秘
+* 2023.11.14：基于 thread-per-core 模型的 Rust 异步运行时 mini-monoio 实现示例
+* 2023.11.27：从 CMU 15-445 bustdb 学习关系型数据库架构
 
 ### Waiting List
 
