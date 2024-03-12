@@ -1,6 +1,6 @@
 ---
 title: groupcache 支持热点填充的分布式内存缓存设计
-slug: go
+slug: groupcache
 date: 2023-12-11 00:00:00+0000
 categories:
     - 源码阅读系列
