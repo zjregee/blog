@@ -11,7 +11,7 @@
 * 2023.11.10：Rust 异步运行时探秘
 * 2023.11.14：基于 thread-per-core 模型的 Rust 异步运行时 mini-monoio 实现示例
 * 2023.11.27：Golang 源码阅读笔记
-* 2023.12.11:groupcache 支持热点填充的分布式内存缓存设计
+* 2023.12.11：groupcache 支持热点填充的分布式内存缓存设计
 * 2023.12.31：netpoll 源码阅读笔记 (Release Soon)
 
 ### Waiting List
