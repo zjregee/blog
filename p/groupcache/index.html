@@ -1,0 +1,220 @@
+<!doctype html><html lang=en-us dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content='groupcache 是 Golang 官方库给出的一个分布式缓存实现示例，旨在提供一个简单、有效的分布式缓存解决方案，用于替代许多场景下同样用于分布式内存缓存的 memcached 集群。
+一、分布式缓存架构 groupcache 集群包括多个对等的分布式节点，并通过 HTTP 请求的方式实现连接。每个节点对外提供的 HTTP 服务不仅用于处理客户端的缓存查询请求，同时也用于处理对等节点之间的缓存查询请求。值得一提的是，对于外部的客户端缓存查询请求，groupcache 节点通过 URL 路径解析的方式处理请求交互，并通过 Protobuf 的编解码方式进行节点间信息的处理。
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 type httpGetter struct { baseURL string transport func(context.Context) http.RoundTripper } func (h *httpGetter) Get(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error { ... } type HTTPPool struct { Context func(*http.Request) context.Context Transport func(context.Context) http.RoundTripper self string opts HTTPPoolOptions mu sync.'><title>groupcache 支持热点填充的分布式内存缓存设计</title>
+<link rel=canonical href=https://zjregee.github.io/blog/p/groupcache/><link rel=stylesheet href=/blog/scss/style.min.d8118f156935b64eca93aca758476adca858d2c47354971654d9bd2933a0e45f.css><meta property='og:title' content='groupcache 支持热点填充的分布式内存缓存设计'><meta property='og:description' content='groupcache 是 Golang 官方库给出的一个分布式缓存实现示例，旨在提供一个简单、有效的分布式缓存解决方案，用于替代许多场景下同样用于分布式内存缓存的 memcached 集群。
+一、分布式缓存架构 groupcache 集群包括多个对等的分布式节点，并通过 HTTP 请求的方式实现连接。每个节点对外提供的 HTTP 服务不仅用于处理客户端的缓存查询请求，同时也用于处理对等节点之间的缓存查询请求。值得一提的是，对于外部的客户端缓存查询请求，groupcache 节点通过 URL 路径解析的方式处理请求交互，并通过 Protobuf 的编解码方式进行节点间信息的处理。
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 type httpGetter struct { baseURL string transport func(context.Context) http.RoundTripper } func (h *httpGetter) Get(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error { ... } type HTTPPool struct { Context func(*http.Request) context.Context Transport func(context.Context) http.RoundTripper self string opts HTTPPoolOptions mu sync.'><meta property='og:url' content='https://zjregee.github.io/blog/p/groupcache/'><meta property='og:site_name' content='zjregee'><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Go'><meta property='article:published_time' content='2023-12-11T00:00:00+00:00'><meta property='article:modified_time' content='2023-12-11T00:00:00+00:00'><meta name=twitter:title content="groupcache 支持热点填充的分布式内存缓存设计"><meta name=twitter:description content="groupcache 是 Golang 官方库给出的一个分布式缓存实现示例，旨在提供一个简单、有效的分布式缓存解决方案，用于替代许多场景下同样用于分布式内存缓存的 memcached 集群。
+一、分布式缓存架构 groupcache 集群包括多个对等的分布式节点，并通过 HTTP 请求的方式实现连接。每个节点对外提供的 HTTP 服务不仅用于处理客户端的缓存查询请求，同时也用于处理对等节点之间的缓存查询请求。值得一提的是，对于外部的客户端缓存查询请求，groupcache 节点通过 URL 路径解析的方式处理请求交互，并通过 Protobuf 的编解码方式进行节点间信息的处理。
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 type httpGetter struct { baseURL string transport func(context.Context) http.RoundTripper } func (h *httpGetter) Get(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error { ... } type HTTPPool struct { Context func(*http.Request) context.Context Transport func(context.Context) http.RoundTripper self string opts HTTPPoolOptions mu sync."><link rel="shortcut icon" href=/favicon.png></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label="Toggle Menu">
+<span class=hamburger-box><span class=hamburger-inner></span></span></button><header><figure class=site-avatar><a href=/blog/><img src=/blog/img/avatar_huf8b2b345a9bb285ed8c532b05217afba_16572_300x0_resize_q75_box.jpg width=300 height=300 class=site-logo loading=lazy alt=Avatar>
+</a><span class=emoji>👻</span></figure><div class=site-meta><h1 class=site-name><a href=/blog>zjregee</a></h1><h2 class=site-description>Enjoy The Moment.</h2></div></header><ol class=menu id=main-menu><li><a href=/blog/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-home" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><polyline points="5 12 3 12 12 3 21 12 19 12"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6"/></svg>
+<span>Home</span></a></li><li><a href=/blog/search/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-search" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="10" cy="10" r="7"/><line x1="21" y1="21" x2="15" y2="15"/></svg>
+<span>Search</span></a></li><li class=menu-bottom-section><ol class=menu><li id=dark-mode-toggle><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-left" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="8" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-right" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<span>Dark Mode</span></li></ol></li></ol></aside><aside class="sidebar right-sidebar sticky"><section class="widget archives"><div class=widget-icon><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-hash" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="11" y1="4" x2="7" y2="20"/><line x1="17" y1="4" x2="13" y2="20"/></svg></div><h2 class="widget-title section-title">Table of contents</h2><div class=widget--toc><nav id=TableOfContents><ul><li><a href=#一分布式缓存架构>一、分布式缓存架构</a></li><li><a href=#二缓存填充设计>二、缓存填充设计</a><ul><li><a href=#21-byteview-与-sink>2.1 ByteView 与 Sink</a></li><li><a href=#22-内存缓存架构与查询流程>2.2 内存缓存架构与查询流程</a></li><li><a href=#23-缓存未命中下的限流>2.3 缓存未命中下的限流</a></li></ul></li></ul></nav></div></section></aside><main class="main full-width"><article class=main-article><header class=article-header><div class=article-details><header class=article-category><a href=/blog/categories/%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB%E7%B3%BB%E5%88%97/>源码阅读系列</a></header><div class=article-title-wrapper><h2 class=article-title><a href=/blog/p/groupcache/>groupcache 支持热点填充的分布式内存缓存设计</a></h2></div><footer class=article-time><div><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-calendar-time" width="56" height="56" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><path d="M11.795 21H5a2 2 0 01-2-2V7a2 2 0 012-2h12a2 2 0 012 2v4"/><circle cx="18" cy="18" r="4"/><path d="M15 3v4"/><path d="M7 3v4"/><path d="M3 11h16"/><path d="M18 16.496V18l1 1"/></svg>
+<time class=article-time--published>Dec 11, 2023</time></div></footer></div></header><section class=article-content><p>groupcache 是 Golang 官方库给出的一个分布式缓存实现示例，旨在提供一个简单、有效的分布式缓存解决方案，用于替代许多场景下同样用于分布式内存缓存的 memcached 集群。</p><h2 id=一分布式缓存架构>一、分布式缓存架构</h2><p>groupcache 集群包括多个对等的分布式节点，并通过 HTTP 请求的方式实现连接。每个节点对外提供的 HTTP 服务不仅用于处理客户端的缓存查询请求，同时也用于处理对等节点之间的缓存查询请求。值得一提的是，对于外部的客户端缓存查询请求，groupcache 节点通过 URL 路径解析的方式处理请求交互，并通过 Protobuf 的编解码方式进行节点间信息的处理。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>httpGetter</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>baseURL</span>   <span class=kt>string</span>
+</span></span><span class=line><span class=cl>    <span class=nx>transport</span> <span class=kd>func</span><span class=p>(</span><span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>)</span> <span class=nx>http</span><span class=p>.</span><span class=nx>RoundTripper</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>h</span> <span class=o>*</span><span class=nx>httpGetter</span><span class=p>)</span> <span class=nf>Get</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>in</span> <span class=o>*</span><span class=nx>pb</span><span class=p>.</span><span class=nx>GetRequest</span><span class=p>,</span> <span class=nx>out</span> <span class=o>*</span><span class=nx>pb</span><span class=p>.</span><span class=nx>GetResponse</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>HTTPPool</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>Context</span>     <span class=kd>func</span><span class=p>(</span><span class=o>*</span><span class=nx>http</span><span class=p>.</span><span class=nx>Request</span><span class=p>)</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span>
+</span></span><span class=line><span class=cl>    <span class=nx>Transport</span>   <span class=kd>func</span><span class=p>(</span><span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>)</span> <span class=nx>http</span><span class=p>.</span><span class=nx>RoundTripper</span>
+</span></span><span class=line><span class=cl>    <span class=nx>self</span>        <span class=kt>string</span>
+</span></span><span class=line><span class=cl>    <span class=nx>opts</span>        <span class=nx>HTTPPoolOptions</span>
+</span></span><span class=line><span class=cl>    <span class=nx>mu</span>          <span class=nx>sync</span><span class=p>.</span><span class=nx>Mutex</span>
+</span></span><span class=line><span class=cl>    <span class=nx>peers</span>       <span class=o>*</span><span class=nx>consistenthash</span><span class=p>.</span><span class=nx>Map</span>
+</span></span><span class=line><span class=cl>    <span class=nx>httpGetters</span> <span class=kd>map</span><span class=p>[</span><span class=kt>string</span><span class=p>]</span><span class=o>*</span><span class=nx>httpGetter</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>p</span> <span class=o>*</span><span class=nx>HTTPPool</span><span class=p>)</span> <span class=nf>ServeHTTP</span><span class=p>(</span><span class=nx>w</span> <span class=nx>http</span><span class=p>.</span><span class=nx>ResponseWriter</span><span class=p>,</span> <span class=nx>r</span> <span class=o>*</span><span class=nx>http</span><span class=p>.</span><span class=nx>Request</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>HTTPPool 是每个节点中的内存数据结构，存储着整个集群的拓扑信息。对等的分布式节点之间通过一致性哈希算法来确定每个节点所管理的键值范围。一致性哈希算法的使用不仅可以使得集群中的节点快速定位到键值所属的对应节点，通过一致性哈希算法中副本数的设置也可以尽可能保障键值的均匀分配。此外，HTTPPool 通过 ServerHTTP 方法实现 http.Handler 接口实现对外提供的 HTTP 服务，httpGetter 提供了对其他节点进行访问的 Get 方法封装。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span><span class=lnt>9
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>ProtoGetter</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Get</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>in</span> <span class=o>*</span><span class=nx>pb</span><span class=p>.</span><span class=nx>GetRequest</span><span class=p>,</span> <span class=nx>out</span> <span class=o>*</span><span class=nx>pb</span><span class=p>.</span><span class=nx>GetResponse</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>PeerPicker</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>PickPeer</span><span class=p>(</span><span class=nx>key</span> <span class=kt>string</span><span class=p>)</span> <span class=p>(</span><span class=nx>ProtoGetter</span><span class=p>,</span> <span class=kt>bool</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>portPicker</span> <span class=kd>func</span><span class=p>(</span><span class=nx>groupName</span> <span class=kt>string</span><span class=p>)</span> <span class=nx>PeerPicker</span>
+</span></span></code></pre></td></tr></table></div></div><p>groupcache 会将 HTTPPool 注册至 portPicker，从而实现缓存命名空间，不同命名空间的缓存服务使用不同的 HTTPPool。</p><h2 id=二缓存填充设计>二、缓存填充设计</h2><p>HTTPPool 构建起了整个 groupcache 的网络拓扑结构并提供了 HTTP 请求流动的支持。在 groupcache 中，除了 HTTPPool，每个分布式节点还会维护自己的内存缓存。</p><h3 id=21-byteview-与-sink>2.1 ByteView 与 Sink</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>ByteView</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>b</span> <span class=p>[]</span><span class=kt>byte</span>
+</span></span><span class=line><span class=cl>    <span class=nx>s</span> <span class=kt>string</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Sink</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>SetString</span><span class=p>(</span><span class=nx>s</span> <span class=kt>string</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nf>SetBytes</span><span class=p>(</span><span class=nx>v</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nf>SetProto</span><span class=p>(</span><span class=nx>m</span> <span class=nx>proto</span><span class=p>.</span><span class=nx>Message</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nf>view</span><span class=p>()</span> <span class=p>(</span><span class=nx>ByteView</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>在缓存设计中，groupcache 提供了 ByteView 和 Sink 封装。ByteView 是缓存中的值类型，通过 ByteView 来避免缓存中的值发生变化。同时，这也意味着 groupcache 的设计初衷在于提供不可变的缓存查询支持，不支持数据的增删改。这在官方的文档中被称为对版本化值的不支持，没有缓存过期时间，没有显式的缓存驱逐（只会在缓存区满时对缓存进行淘汰），无需 CAS 操作（因为没有修改过程中的潜在冲突）。</p><p>支持增删改的分布式缓存系统需要保持强一致性，而并非所有场景都需要支持对缓存的增删改。大部分的缓存场景只需支持对高频访问数据的维护，即使存在需要改动的情况也可以将不会发生改变的东西剥离引入缓存。因此 groupcache 的设计理念在现实场景中仍然有一定的参考和使用价值，但并非适用于所有场景。Sink 是对缓存查询行为的封装，缓存查询过程中会将对应 ByteView 的值更新在实现 Sink 接口的对象中。</p><h3 id=22-内存缓存架构与查询流程>2.2 内存缓存架构与查询流程</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span><span class=lnt>9
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Getter</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Get</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>GetterFunc</span> <span class=kd>func</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>f</span> <span class=nx>GetterFunc</span><span class=p>)</span> <span class=nf>Get</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nf>f</span><span class=p>(</span><span class=nx>ctx</span><span class=p>,</span> <span class=nx>key</span><span class=p>,</span> <span class=nx>dest</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>groupcache 以 lib 库的形式提供给用户，在部署时与用户进程进行集成，用户需要为 groupcache 提供实现 Getter 接口的缓存获取方法。在之前已经提到，groupcache 中的每个节点通过一致性哈希算法确定自己负责的键值范围，这可以理解为这部分键值属于节点的本职工作。那么节点如何获取这部分键值呢，答案就是用户提供的 Getter 接口实现。实现 Getter 接口的方法可以从 redis 或其他数据库中获取实际数据，甚至是另外一个 groupcache 集群。groupcache 整体的接口设计以 lib 库的模式进行，而不直接负责运行分布式缓存服务，提供了使用上的灵活性。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>flightGroup</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Do</span><span class=p>(</span><span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>fn</span> <span class=kd>func</span><span class=p>()</span> <span class=p>(</span><span class=kd>interface</span><span class=p>{},</span> <span class=kt>error</span><span class=p>))</span> <span class=p>(</span><span class=kd>interface</span><span class=p>{},</span> <span class=kt>error</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Group</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>name</span>       <span class=kt>string</span>
+</span></span><span class=line><span class=cl>    <span class=nx>getattr</span>    <span class=nx>Gettter</span>
+</span></span><span class=line><span class=cl>    <span class=nx>peers</span>      <span class=nx>PeerPicker</span>
+</span></span><span class=line><span class=cl>    <span class=nx>cacheBytes</span> <span class=kt>int64</span>
+</span></span><span class=line><span class=cl>    <span class=nx>mainCache</span>  <span class=nx>cache</span>
+</span></span><span class=line><span class=cl>    <span class=nx>hotCache</span>   <span class=nx>cache</span>
+</span></span><span class=line><span class=cl>    <span class=nx>loadGroup</span>  <span class=nx>flightGroup</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>Get</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>getLocally</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=p>(</span><span class=nx>ByteView</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>getFromPeer</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>context</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>dest</span> <span class=nx>Sink</span><span class=p>)</span> <span class=p>(</span><span class=nx>ByteView</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>lookupCache</span><span class=p>(</span><span class=nx>key</span> <span class=kt>string</span><span class=p>)</span> <span class=p>(</span><span class=nx>ByteView</span><span class=p>,</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>populateCache</span><span class=p>(</span><span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>value</span> <span class=nx>ByteView</span><span class=p>,</span> <span class=nx>cache</span> <span class=o>*</span><span class=nx>cache</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>Group 是内存缓存的主要数据结构，其中包括了 mainCache 和 hotCache 两种缓存，两者都是基于 LRU 算法实现的内存缓存。cacheBytes 用于限制缓存的大小，两种缓存加起来的内存使用量不大于 cacheBytes，否则就会通过 populateCache 方法驱逐部分缓存。mainCache 和 hotCache 中缓存的键值不仅仅来源于 Getter 方法，也包括接收到不属于节点管理范围的键值查询请求时，通过 getFromPeer 方法从其他对等节点获取的键值数据。</p><p>Group 接收到键值查询请求后，完整的处理流程包括：查询 mainCache 和 hotCache 中是否包含键值数据，存在缓存数据时直接返回相关数据；当缓存数据不存在时，判断键值数据是否有该节点直接负责，若由该节点直接负责该数据，则通过 getLocally 方法调用 Getter 方法获取数据，并添加至 mainCache；若由其他节点负责该数据，则通过 getFromPeer 方法从其他节点获取数据，并通过随机概率将该数据添加至 hotCache（通过引入随机性，使得 hotCache 中缓存的是其他节点中的热点数据，即当需要经常从其他节点查询某数据时，则有较大概率将数据加入 hotCache）。</p><h3 id=23-缓存未命中下的限流>2.3 缓存未命中下的限流</h3><p>至此，groupcache 的整体架构以及实现分布式缓存的原理已经基本清晰。groupcache 通过两种方式确保了缓存未命中下的限流：</p><ul><li>所有对等节点均匀划分了键值范围，当缓存未命中时，只会有一个节点从后端的数据库中查询键值数据，其他节点只需从该节点同步数据，避免大量的重复查询流量直接引入后端的数据库中，这被成为缓存填充的协调以及键值加载后的多路复用。</li><li>通过 flightGroup 方法避免了缓存未命中并有大量查询请求在查询同一个未命中的键值时生成众多相同的缓存更新操作。这里有两层意思，缓存未命中时，节点只会向其他负责该数据的节点发送一个查询请求，负责该数据的节点只会向后端的数据库发送一个查询请求。</li></ul><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>type</span> <span class=nx>call</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>wg</span> <span class=nx>sync</span><span class=p>.</span><span class=nx>WaitGroup</span>
+</span></span><span class=line><span class=cl>    <span class=nx>val</span> <span class=kd>interface</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>err</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Group</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>mu</span> <span class=nx>sync</span><span class=p>.</span><span class=nx>Mutex</span>
+</span></span><span class=line><span class=cl>    <span class=nx>m</span> <span class=kd>map</span><span class=p>[</span><span class=kt>string</span><span class=p>]</span><span class=o>*</span><span class=nx>call</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>g</span> <span class=o>*</span><span class=nx>Group</span><span class=p>)</span> <span class=nf>Do</span><span class=p>(</span><span class=nx>key</span> <span class=kt>string</span><span class=p>,</span> <span class=nx>fn</span> <span class=kd>func</span><span class=p>()</span> <span class=p>(</span><span class=kd>interface</span><span class=p>{},</span> <span class=kt>error</span><span class=p>))</span> <span class=p>(</span><span class=kd>interface</span><span class=p>{},</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>g</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>g</span><span class=p>.</span><span class=nx>m</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>g</span><span class=p>.</span><span class=nx>m</span> <span class=p>=</span> <span class=nb>make</span><span class=p>(</span><span class=kd>map</span><span class=p>[</span><span class=kt>string</span><span class=p>]</span><span class=o>*</span><span class=nx>call</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>c</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>g</span><span class=p>.</span><span class=nx>m</span><span class=p>[</span><span class=nx>key</span><span class=p>];</span> <span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>g</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>wg</span><span class=p>.</span><span class=nf>Wait</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nx>c</span><span class=p>.</span><span class=nx>val</span><span class=p>,</span> <span class=nx>c</span><span class=p>.</span><span class=nx>err</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span> <span class=o>:=</span> <span class=nb>new</span><span class=p>(</span><span class=nx>call</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>wg</span><span class=p>.</span><span class=nf>Add</span><span class=p>(</span><span class=mi>1</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nx>g</span><span class=p>.</span><span class=nx>m</span><span class=p>[</span><span class=nx>key</span><span class=p>]</span> <span class=p>=</span> <span class=nx>c</span>
+</span></span><span class=line><span class=cl>    <span class=nx>g</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>val</span><span class=p>,</span> <span class=nx>c</span><span class=p>.</span><span class=nx>err</span> <span class=p>=</span> <span class=nf>fn</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>wg</span><span class=p>.</span><span class=nf>Done</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=nx>g</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=nb>delete</span><span class=p>(</span><span class=nx>g</span><span class=p>.</span><span class=nx>m</span><span class=p>,</span> <span class=nx>key</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nx>g</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>c</span><span class=p>.</span><span class=nx>val</span><span class=p>,</span> <span class=nx>c</span><span class=p>.</span><span class=nx>err</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>上面的代码是 groupcache 中对 flightGroup 的实现。</p><blockquote><p>写在最后。</p><p>groupcache 整体代码在不包括测试的情况下一千多行，麻雀虽小，五脏俱全，其中包含的细节和工程实现还是比较完整的，对缓存穿透和热点节点问题给出了一定的解决思路。据官网所描述，groupcache 也曾在 Google 中用于生产环境，其设计思想并没有很复杂，但仍然具有一定参考价值。此外，由于灵活的运用了接口和 lib 库设计模式使得代码并没有非常直观，没有一个端到端的运行链，很多时候逻辑是循环嵌套的。</p><p>项目地址：https://github.com/golang/groupcache.</p></blockquote></section><footer class=article-footer><section class=article-tags><a href=/blog/tags/go/>Go</a></section><section class=article-copyright><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copyright" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><path d="M14.5 9a3.5 4 0 100 6"/></svg>
+<span>Licensed under CC BY-NC-SA 4.0</span></section><section class=article-lastmod><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-clock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+<span>Last updated on Dec 11, 2023 00:00 UTC</span></section></footer></article><aside class=related-content--wrapper><h2 class=section-title>Related content</h2><div class=related-content><div class="flex article-list--tile"><article class=has-image><a href=/blog/p/fd/><div class=article-image><img src=/blog/p/fd/cover.5ef92db25ac0339f29e2a7d61c7098c0_hu5d8acb1e814c36457f6782e122fe0ff3_366641_250x150_fill_q75_box_smart1.jpg width=250 height=150 loading=lazy alt="Featured image of post 新一代文件系统检索命令行工具 fd 源码阅读" data-key=fd data-hash="md5-XvktslrAM58p4qfWHHCYwA=="></div><div class=article-details><h2 class=article-title>新一代文件系统检索命令行工具 fd 源码阅读</h2></div></a></article></div></div></aside><footer class=site-footer><section class=copyright>&copy;
+2020 -
+2024 zjregee</section><section class=powerby>Built with <a href=https://gohugo.io/ target=_blank rel=noopener>Hugo</a><br>Theme <b><a href=https://github.com/CaiJimmy/hugo-theme-stack target=_blank rel=noopener data-version=3.24.0>Stack</a></b> designed by <a href=https://jimmycai.com target=_blank rel=noopener>Jimmy</a></section></footer><div class=pswp tabindex=-1 role=dialog aria-hidden=true><div class=pswp__bg></div><div class=pswp__scroll-wrap><div class=pswp__container><div class=pswp__item></div><div class=pswp__item></div><div class=pswp__item></div></div><div class="pswp__ui pswp__ui--hidden"><div class=pswp__top-bar><div class=pswp__counter></div><button class="pswp__button pswp__button--close" title="Close (Esc)"></button>
+<button class="pswp__button pswp__button--share" title=Share></button>
+<button class="pswp__button pswp__button--fs" title="Toggle fullscreen"></button>
+<button class="pswp__button pswp__button--zoom" title="Zoom in/out"></button><div class=pswp__preloader><div class=pswp__preloader__icn><div class=pswp__preloader__cut><div class=pswp__preloader__donut></div></div></div></div></div><div class="pswp__share-modal pswp__share-modal--hidden pswp__single-tap"><div class=pswp__share-tooltip></div></div><button class="pswp__button pswp__button--arrow--left" title="Previous (arrow left)">
+</button>
+<button class="pswp__button pswp__button--arrow--right" title="Next (arrow right)"></button><div class=pswp__caption><div class=pswp__caption__center></div></div></div></div></div><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.js integrity="sha256-ePwmChbbvXbsO02lbM3HoHbSHTHFAeChekF1xKJdleo=" crossorigin=anonymous defer></script><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe-ui-default.min.js integrity="sha256-UKkzOn/w1mBxRmLLGrSeyB4e1xbrp4xylgAWb3M42pU=" crossorigin=anonymous defer></script><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/default-skin/default-skin.min.css crossorigin=anonymous><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.css crossorigin=anonymous></main></div><script src=https://cdn.jsdelivr.net/npm/node-vibrant@3.1.6/dist/vibrant.min.js integrity="sha256-awcR2jno4kI5X0zL8ex0vi2z+KMkF24hUW8WePSA9HM=" crossorigin=anonymous></script><script type=text/javascript src=/blog/ts/main.js defer></script><script>(function(){const e=document.createElement("link");e.href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap",e.type="text/css",e.rel="stylesheet",document.head.appendChild(e)})()</script></body></html>
