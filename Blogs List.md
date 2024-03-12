@@ -11,10 +11,10 @@
 * 2023.11.10：Rust 异步运行时探秘
 * 2023.11.14：基于 thread-per-core 模型的 Rust 异步运行时 mini-monoio 实现示例
 * 2023.11.27：Golang 源码阅读笔记
+* 2023.12.11:groupcache 支持热点填充的分布式内存缓存设计
+* 2023.12.31：netpoll 源码阅读笔记 (Release Soon)
 
 ### Waiting List
 
-* 2023.12.01：Service Mesh 场景下的高性能进程间通讯库实现（一）
-* 2023.12.11：Service Mesh 场景下的高性能进程间通讯库实现（二）
-* 2023.12.31：Service Mesh 场景下的高性能进程间通讯库实现（三）
-* 2024.01.09：netpoll 源码阅读笔记
+* 2023.01.01：Service Mesh 场景下的高性能进程间通讯库实现（一）
+* 2023.01.12：Service Mesh 场景下的高性能进程间通讯库实现（二）
