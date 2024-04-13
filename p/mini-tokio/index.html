@@ -1,0 +1,683 @@
+<!doctype html><html lang=en-us dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content="本文是 mini 系列的第五篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文根据 Tokio 官方教程实现了一个 Rust 异步运行时示例以及一个实现 Future trait 可供运行时调度的值类型。 Tokio 项目地址：https://github.com/tokio-rs/tokio mini-tokio 代码实现地址：https://github.com/zjregee/mini/mini-tokio # 一、Futures 在 Rust 中直接调用异步函数返回的值是 future，即实现标准库所提供的 std::future::Future trait 的值，该 trait 定义如下： 1 2 3 4 5 6 7 8 9 use std::pin::Pin; use std::task::{Context, Poll}; pub trait Future { type Output; fn poll(self: Pin<&amp;mut Self>, cx: &amp;mut Context) -> Poll<Self::Output>; } 关联类型 Output 是 future 完成后产生的类型，Pin 类型是 Rust 在异步函数中支持借用的方式。与其他语言的 future 实现方式不同，Rust 中的 future 并不表示在后台发生的计算，而是 future 本身就是计算。future 的所有者需要负责轮询 future 来推动计算，推进计算的过程是通过调用 Future::poll 来实现的。"><title>Rust 异步运行时实现示例</title>
+<link rel=canonical href=https://zjregee.github.io/blog/p/mini-tokio/><link rel=stylesheet href=/blog/scss/style.min.8e60baf4cd3fc55968717a6e39762f4d28ed7ef6007566b6c7970ad0fe907198.css><meta property='og:title' content="Rust 异步运行时实现示例"><meta property='og:description' content="本文是 mini 系列的第五篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文根据 Tokio 官方教程实现了一个 Rust 异步运行时示例以及一个实现 Future trait 可供运行时调度的值类型。 Tokio 项目地址：https://github.com/tokio-rs/tokio mini-tokio 代码实现地址：https://github.com/zjregee/mini/mini-tokio # 一、Futures 在 Rust 中直接调用异步函数返回的值是 future，即实现标准库所提供的 std::future::Future trait 的值，该 trait 定义如下： 1 2 3 4 5 6 7 8 9 use std::pin::Pin; use std::task::{Context, Poll}; pub trait Future { type Output; fn poll(self: Pin<&amp;mut Self>, cx: &amp;mut Context) -> Poll<Self::Output>; } 关联类型 Output 是 future 完成后产生的类型，Pin 类型是 Rust 在异步函数中支持借用的方式。与其他语言的 future 实现方式不同，Rust 中的 future 并不表示在后台发生的计算，而是 future 本身就是计算。future 的所有者需要负责轮询 future 来推动计算，推进计算的过程是通过调用 Future::poll 来实现的。"><meta property='og:url' content='https://zjregee.github.io/blog/p/mini-tokio/'><meta property='og:site_name' content='zjregee'><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Rust'><meta property='article:published_time' content='2023-11-03T00:00:00+00:00'><meta property='article:modified_time' content='2023-11-03T00:00:00+00:00'><meta name=twitter:title content="Rust 异步运行时实现示例"><meta name=twitter:description content="本文是 mini 系列的第五篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文根据 Tokio 官方教程实现了一个 Rust 异步运行时示例以及一个实现 Future trait 可供运行时调度的值类型。 Tokio 项目地址：https://github.com/tokio-rs/tokio mini-tokio 代码实现地址：https://github.com/zjregee/mini/mini-tokio # 一、Futures 在 Rust 中直接调用异步函数返回的值是 future，即实现标准库所提供的 std::future::Future trait 的值，该 trait 定义如下： 1 2 3 4 5 6 7 8 9 use std::pin::Pin; use std::task::{Context, Poll}; pub trait Future { type Output; fn poll(self: Pin<&amp;mut Self>, cx: &amp;mut Context) -> Poll<Self::Output>; } 关联类型 Output 是 future 完成后产生的类型，Pin 类型是 Rust 在异步函数中支持借用的方式。与其他语言的 future 实现方式不同，Rust 中的 future 并不表示在后台发生的计算，而是 future 本身就是计算。future 的所有者需要负责轮询 future 来推动计算，推进计算的过程是通过调用 Future::poll 来实现的。"><link rel="shortcut icon" href=/favicon.png></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label="Toggle Menu">
+<span class=hamburger-box><span class=hamburger-inner></span></span></button><header><figure class=site-avatar><a href=/blog/><img src=/blog/img/avatar_huf8b2b345a9bb285ed8c532b05217afba_16572_300x0_resize_q75_box.jpg width=300 height=300 class=site-logo loading=lazy alt=Avatar>
+</a><span class=emoji>👻</span></figure><div class=site-meta><h1 class=site-name><a href=/blog>zjregee</a></h1><h2 class=site-description>Enjoy The Moment.</h2></div></header><ol class=menu id=main-menu><li><a href=/blog/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-home" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><polyline points="5 12 3 12 12 3 21 12 19 12"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6"/></svg>
+<span>Home</span></a></li><li><a href=/blog/search/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-search" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="10" cy="10" r="7"/><line x1="21" y1="21" x2="15" y2="15"/></svg>
+<span>Search</span></a></li><li class=menu-bottom-section><ol class=menu><li id=dark-mode-toggle><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-left" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="8" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-right" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<span>Dark Mode</span></li></ol></li></ol></aside><aside class="sidebar right-sidebar sticky"><section class="widget archives"><div class=widget-icon><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-hash" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="11" y1="4" x2="7" y2="20"/><line x1="17" y1="4" x2="13" y2="20"/></svg></div><h2 class="widget-title section-title">Table of contents</h2><div class=widget--toc><nav id=TableOfContents><ul><li><a href=#一futures>一、Futures</a><ul><li><a href=#11-implementing-future>1.1 implementing future</a></li><li><a href=#12-async-fn-as-a-future>1.2 async fn as a Future</a></li></ul></li><li><a href=#二executors>二、Executors</a><ul><li><a href=#21-mini-tokio>2.1 mini-tokio</a></li></ul></li><li><a href=#三wakers>三、Wakers</a><ul><li><a href=#31-updating-delay>3.1 updating delay</a></li><li><a href=#32-update-mini-tokio>3.2 update mini-tokio</a></li></ul></li><li><a href=#四总结>四、总结</a><ul><li><a href=#41-一些尚未解决的问题>4.1 一些尚未解决的问题</a></li><li><a href=#42-notify-实用工具>4.2 notify 实用工具</a></li><li><a href=#43-定义-trait-中的异步方法>4.3 定义 trait 中的异步方法</a></li></ul></li><li><a href=#参考资料>参考资料</a></li></ul></nav></div></section></aside><main class="main full-width"><article class=main-article><header class=article-header><div class=article-details><header class=article-category><a href=/blog/categories/mini-%E7%B3%BB%E5%88%97/>Mini 系列</a></header><div class=article-title-wrapper><h2 class=article-title><a href=/blog/p/mini-tokio/>Rust 异步运行时实现示例</a></h2></div><footer class=article-time><div><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-calendar-time" width="56" height="56" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><path d="M11.795 21H5a2 2 0 01-2-2V7a2 2 0 012-2h12a2 2 0 012 2v4"/><circle cx="18" cy="18" r="4"/><path d="M15 3v4"/><path d="M7 3v4"/><path d="M3 11h16"/><path d="M18 16.496V18l1 1"/></svg>
+<time class=article-time--published>Nov 03, 2023</time></div></footer></div></header><section class=article-content><blockquote><p>本文是 mini 系列的第五篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文根据 Tokio 官方教程实现了一个 Rust 异步运行时示例以及一个实现 Future trait 可供运行时调度的值类型。</p><p>Tokio 项目地址：https://github.com/tokio-rs/tokio</p><p>mini-tokio 代码实现地址：https://github.com/zjregee/mini/mini-tokio</p></blockquote><h2 id=一futures><a href=#%e4%b8%80futures>#</a>
+一、Futures</h2><p>在 Rust 中直接调用异步函数返回的值是 future，即实现标准库所提供的 std::future::Future trait 的值，该 trait 定义如下：</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span><span class=lnt>9
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>pub</span><span class=w> </span><span class=k>trait</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;</span><span class=bp>Self</span>::<span class=n>Output</span><span class=o>&gt;</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>关联类型 Output 是 future 完成后产生的类型，Pin 类型是 Rust 在异步函数中支持借用的方式。与其他语言的 future 实现方式不同，Rust 中的 future 并不表示在后台发生的计算，而是 future 本身就是计算。future 的所有者需要负责轮询 future 来推动计算，推进计算的过程是通过调用 Future::poll 来实现的。</p><h3 id=11-implementing-future><a href=#11-implementing-future>#</a>
+1.1 implementing future</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>when</span>: <span class=nc>Instant</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=o>&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=o>&lt;</span><span class=nb>&#39;_</span><span class=o>&gt;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=o>&gt;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>&gt;=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=fm>println!</span><span class=p>(</span><span class=s>&#34;Hello world&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(</span><span class=s>&#34;done&#34;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>().</span><span class=n>wake_by_ref</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=cp>#[tokio::main]</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>async</span><span class=w> </span><span class=k>fn</span> <span class=nf>main</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=n>Duration</span>::<span class=n>from_millis</span><span class=p>(</span><span class=mi>10</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>future</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>out</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>future</span><span class=p>.</span><span class=k>await</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=fm>assert_eq!</span><span class=p>(</span><span class=n>out</span><span class=p>,</span><span class=w> </span><span class=s>&#34;done&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><h3 id=12-async-fn-as-a-future><a href=#12-async-fn-as-a-future>#</a>
+1.2 async fn as a Future</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>enum</span> <span class=nc>MainFuture</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>State0</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>State1</span><span class=p>(</span><span class=n>Delay</span><span class=p>),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>Terminated</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>MainFuture</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=o>&lt;</span><span class=nb>&#39;_</span><span class=o>&gt;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;</span><span class=p>()</span><span class=o>&gt;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>use</span><span class=w> </span><span class=n>MainFuture</span>::<span class=o>*</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>loop</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>match</span><span class=w> </span><span class=o>*</span><span class=bp>self</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>State0</span><span class=w> </span><span class=o>=&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=n>Duration</span>::<span class=n>from_millis</span><span class=p>(</span><span class=mi>10</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=kd>let</span><span class=w> </span><span class=n>future</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=o>*</span><span class=bp>self</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>State1</span><span class=p>(</span><span class=n>future</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>State1</span><span class=p>(</span><span class=k>ref</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>my_future</span><span class=p>)</span><span class=w> </span><span class=o>=&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=k>match</span><span class=w> </span><span class=n>Pin</span>::<span class=n>new</span><span class=p>(</span><span class=n>my_future</span><span class=p>).</span><span class=n>poll</span><span class=p>(</span><span class=n>cx</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(</span><span class=n>out</span><span class=p>)</span><span class=w> </span><span class=o>=&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                            </span><span class=fm>assert_eq!</span><span class=p>(</span><span class=n>out</span><span class=p>,</span><span class=w> </span><span class=s>&#34;done&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                            </span><span class=o>*</span><span class=bp>self</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Terminated</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                            </span><span class=k>return</span><span class=w> </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=w> </span><span class=o>=&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                            </span><span class=k>return</span><span class=w> </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>Terminated</span><span class=w> </span><span class=o>=&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=fm>panic!</span><span class=p>(</span><span class=s>&#34;future polled after completion&#34;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>Rust 中的 futures 是状态机。在这里，MainFuture 被表示为 future 可能状态的枚举。future 从 State 0 状态开始，当调用 poll 时，future 试图尽可能地推进其内部状态。如果 future 可以被完成，则返回 Poll::Ready，其中包含异步计算的输出。如果 future 不能完成，通常是由于它正在等待的资源没有准备好，那么返回 Poll::Pending，接收到 Poll::Pending 向调用方表明 future 将在稍后的时间完成，调用方应该稍后再次调用 poll。futures 是由其他 futures 组成的，在外部的 futures 上调用 poll 会导致调用内部 futures 的poll 函数。</p><h2 id=二executors><a href=#%e4%ba%8cexecutors>#</a>
+二、Executors</h2><p>异步函数返回 futures，futures 一定需要被调用 poll 来推进它们的状态。futures 是由 futures 来组成的。那么又是由谁来调用最外层 future 的 poll 呢？要运行异步函数，它们要么传递给 tokio::spawn，要么是带有 #[tokio::main] 注释的 main 函数。这导致将生成的外部 future 提交给 Tokio 执行器。执行器负责对外部的 future 调用 Future::poll，推动异步计算完成。</p><h3 id=21-mini-tokio><a href=#21-mini-tokio>#</a>
+2.1 mini-tokio</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span><span class=lnt>47
+</span><span class=lnt>48
+</span><span class=lnt>49
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>collections</span>::<span class=n>VecDeque</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>futures</span>::<span class=n>task</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>main</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>mini_tokio</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>MiniTokio</span>::<span class=n>new</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>mini_tokio</span><span class=p>.</span><span class=n>spawn</span><span class=p>(</span><span class=k>async</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=n>Duration</span>::<span class=n>from_millis</span><span class=p>(</span><span class=mi>10</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>future</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>out</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>future</span><span class=p>.</span><span class=k>await</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=fm>assert_eq!</span><span class=p>(</span><span class=n>out</span><span class=p>,</span><span class=w> </span><span class=s>&#34;done&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>mini_tokio</span><span class=p>.</span><span class=n>run</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>tasks</span>: <span class=nc>VecDeque</span><span class=o>&lt;</span><span class=n>Task</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>type</span> <span class=nc>Task</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Pin</span><span class=o>&lt;</span><span class=nb>Box</span><span class=o>&lt;</span><span class=k>dyn</span><span class=w> </span><span class=n>Future</span><span class=o>&lt;</span><span class=n>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=o>&gt;&gt;</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>new</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>tasks</span>: <span class=nc>VecDeque</span>::<span class=n>new</span><span class=p>(),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>spawn</span><span class=o>&lt;</span><span class=n>F</span><span class=o>&gt;</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>future</span>: <span class=nc>F</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>F</span>: <span class=nc>Future</span><span class=o>&lt;</span><span class=n>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>tasks</span><span class=p>.</span><span class=n>push_back</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>pin</span><span class=p>(</span><span class=n>future</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>run</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>task</span>::<span class=n>noop_waker</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>cx</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Context</span>::<span class=n>from_waker</span><span class=p>(</span><span class=o>&amp;</span><span class=n>waker</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>while</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=k>mut</span><span class=w> </span><span class=n>task</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>tasks</span><span class=p>.</span><span class=n>pop_front</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>if</span><span class=w> </span><span class=n>task</span><span class=p>.</span><span class=n>as_mut</span><span class=p>().</span><span class=n>poll</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>cx</span><span class=p>).</span><span class=n>is_pending</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=bp>self</span><span class=p>.</span><span class=n>tasks</span><span class=p>.</span><span class=n>push_back</span><span class=p>(</span><span class=n>task</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>这将导致运行异步块。这个执行器有个显著的缺陷，这个执行器不断地循环所有的 futures 并调用 poll。大多数时候，futures 不会准备好执行更多的工作，并且会再次返回 Poll::Pending。这个过程会消耗 CPU 周期，通常效率不高。理想情况下，我们希望 mini-tokio 仅在 futures 能够取得进展的时候调用 poll。当任务被阻塞的资源准备好执行所请求的操作时，就会发生这种情况。如果任务想要从 TCP 套接字读取数据，那么只希望在 TCP 套接字接收到数据时轮询任务。</p><h2 id=三wakers><a href=#%e4%b8%89wakers>#</a>
+三、Wakers</h2><p>通过 wakers，资源能够通知等待任务该资源已准备好继续某些操作。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;</span><span class=bp>Self</span>::<span class=n>Output</span><span class=o>&gt;</span><span class=p>;</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>poll 的 Context 参数有一个 waker() 方法，此方法返回绑定到当前任务的 waker。waker 有一个 wake() 方法，调用此方法向执行器发出信号，表明应该安排执行关联的任务。资源在转换到就绪状态时调用 wake()，以通知执行器轮询任务将能够取得进展。</p><h3 id=31-updating-delay><a href=#31-updating-delay>#</a>
+3.1 updating delay</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>thread</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>when</span>: <span class=nc>Instant</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=o>&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=o>&lt;</span><span class=nb>&#39;_</span><span class=o>&gt;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=o>&gt;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>&gt;=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=fm>println!</span><span class=p>(</span><span class=s>&#34;Hello world&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(</span><span class=s>&#34;done&#34;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=kd>let</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>().</span><span class=n>clone</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>thread</span>::<span class=n>spawn</span><span class=p>(</span><span class=k>move</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=kd>let</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=k>if</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>&lt;</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=n>thread</span>::<span class=n>sleep</span><span class=p>(</span><span class=n>when</span><span class=w> </span><span class=o>-</span><span class=w> </span><span class=n>now</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>waker</span><span class=p>.</span><span class=n>wake</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>当 future 返回 Poll::Pending 时，它必须确保在某个时刻向 waker 发出信号，忘记这样做会导致任务无限期搁置。当返回 Poll::Pending 后忘记唤醒任务是 bug 的常见来源。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>impl</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=o>&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=o>&lt;</span><span class=nb>&#39;_</span><span class=o>&gt;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;&amp;</span><span class=nb>&#39;static</span><span class=w> </span><span class=kt>str</span><span class=o>&gt;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>&gt;=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=fm>println!</span><span class=p>(</span><span class=s>&#34;Hello world&#34;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(</span><span class=s>&#34;done&#34;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>().</span><span class=n>wake_by_ref</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>在之前的 Delay 实现中，在返回 Poll::Pending 之前，我们调用了 cx.wake().wake_by_ref()。这是因为我们还没有实现计数器线程，所以我们内联地给 waker 发送信号，这样将导致 future 立即重新调度，再次执行，并且可能无法完成。这样的实现会导致一个忙循环，除了浪费一些 CPU 周期，也并没有什么问题。</p><h3 id=32-update-mini-tokio><a href=#32-update-mini-tokio>#</a>
+3.2 update mini-tokio</h3><p>更新后的 mini-tokio 使用一个 channel 来存储被调度的任务。channel 允许任务排队并从任何线程执行。wakers 必须是 Send 和 Sync 的，所以在这里使用 crossbeam crate，因为标准库中的 channel 不是 Sync 的。可以发送到其他线程的类型是 Send，大多数类型都是 Send，但像 Rc 这样的类型不是。可以通过不可变引用并发访问的类型是 Sync。类型可以是 Send，但不是 Sync的。例如 Cell 它可以通过不可变引用进行修改，因此并发访问是不安全的。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>crossbeam</span>::<span class=n>channel</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>sync</span>::<span class=p>{</span><span class=n>Arc</span><span class=p>,</span><span class=w> </span><span class=n>Mutex</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>scheduled</span>: <span class=nc>channel</span>::<span class=n>Receiver</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>Task</span><span class=o>&gt;&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>sender</span>: <span class=nc>channel</span>::<span class=n>Sender</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>Task</span><span class=o>&gt;&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>Task</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>future</span>: <span class=nc>Mutex</span><span class=o>&lt;</span><span class=n>Pin</span><span class=o>&lt;</span><span class=nb>Box</span><span class=o>&lt;</span><span class=k>dyn</span><span class=w> </span><span class=n>Future</span><span class=o>&lt;</span><span class=n>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=o>&gt;&gt;&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>executor</span>: <span class=nc>channel</span>::<span class=n>Sender</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>Task</span><span class=o>&gt;&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Task</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>schedule</span><span class=p>(</span><span class=bp>self</span>: <span class=kp>&amp;</span><span class=nc>Arc</span><span class=o>&lt;</span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>executor</span><span class=p>.</span><span class=n>send</span><span class=p>(</span><span class=bp>self</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>wakers 是 Sync 的，并且可以被 clone。当 wake 被调用时，任务必须被调度执行。在这里通过 channel 实现这一点。当 wake() 在 waker 上被调用时，任务被推送到 channel 的发送端口。Task 结构将实现 wake 逻辑。现在需要将 schedule 函数与 std::task::Waker 挂钩。标准库提供了一个 low-level 的 API，通过手动构造的虚函数表可以实现这一点。这个实现方式为实现者提供了最大的灵活性，但需要大量 unsafe 的样板代码。在这里不直接使用 RawWakerVTable，而是使用 futures crate 提供的 ArcWake 实用程序。这个 crate 允许通过实现一个简单的 trait，将 Task 结构体公开为一个 waker。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>futures</span>::<span class=n>task</span>::<span class=p>{</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>ArcWake</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>sync</span>::<span class=n>Arc</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>ArcWake</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Task</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>wake_by_ref</span><span class=p>(</span><span class=n>arc_self</span>: <span class=kp>&amp;</span><span class=nc>Arc</span><span class=o>&lt;</span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>arc_self</span><span class=p>.</span><span class=n>schedule</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>当之前的计时器线程调用 waker.wake() 时，任务被推送到 channel 中。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>impl</span><span class=w> </span><span class=n>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>run</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>while</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Ok</span><span class=p>(</span><span class=n>task</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>scheduled</span><span class=p>.</span><span class=n>recv</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>task</span><span class=p>.</span><span class=n>poll</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>new</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>sender</span><span class=p>,</span><span class=w> </span><span class=n>scheduled</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>channel</span>::<span class=n>unbounded</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>MiniTokio</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=n>scheduled</span><span class=p>,</span><span class=w> </span><span class=n>sender</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>spawn</span><span class=o>&lt;</span><span class=n>F</span><span class=o>&gt;</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>future</span>: <span class=nc>F</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>F</span>: <span class=nc>Future</span><span class=o>&lt;</span><span class=n>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>Task</span>::<span class=n>spawn</span><span class=p>(</span><span class=n>future</span><span class=p>,</span><span class=w> </span><span class=o>&amp;</span><span class=bp>self</span><span class=p>.</span><span class=n>sender</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Task</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=bp>self</span>: <span class=nc>Arc</span><span class=o>&lt;</span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>task</span>::<span class=n>waker</span><span class=p>(</span><span class=bp>self</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>cx</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Context</span>::<span class=n>from_waker</span><span class=p>(</span><span class=o>&amp;</span><span class=n>waker</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>future</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>future</span><span class=p>.</span><span class=n>try_lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>_</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>future</span><span class=p>.</span><span class=n>as_mut</span><span class=p>().</span><span class=n>poll</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>cx</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>spawn</span><span class=o>&lt;</span><span class=n>F</span><span class=o>&gt;</span><span class=p>(</span><span class=n>future</span>: <span class=nc>F</span><span class=p>,</span><span class=w> </span><span class=n>sender</span>: <span class=kp>&amp;</span><span class=nc>channel</span>::<span class=n>Sender</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>Task</span><span class=o>&gt;&gt;</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>F</span>: <span class=nc>Future</span><span class=o>&lt;</span><span class=n>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>task</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Task</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>future</span>: <span class=nc>Mutex</span>::<span class=n>new</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>pin</span><span class=p>(</span><span class=n>future</span><span class=p>)),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>executor</span>: <span class=nc>sender</span><span class=p>.</span><span class=n>clone</span><span class=p>(),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>_</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>sender</span><span class=p>.</span><span class=n>send</span><span class=p>(</span><span class=n>task</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>Task:poll() 函数使用 futures crate 中的 ArcWake 实用程序创建 waker，这个 waker 用于创建 task::Context，该 task::Context 被传递给 poll。</p><h2 id=四总结><a href=#%e5%9b%9b%e6%80%bb%e7%bb%93>#</a>
+四、总结</h2><p>Rust 的 async/await 特性是由 traits 支持的，这允许第三方 crate 提供执行细节：异步 Rust 操作是惰性的，需要调用者去轮询它们；wakers 被传递给 futures，将 future 与调用它的任务联系起来；当资源尚未准备好完成操作时，将返回 Poll::Pending 并记录任务的 waker；当资源准备就绪时，通知任务的 waker；执行器接收通知并安排任务的执行；再次轮询任务，这一次资源准备就绪，任务取得进展。</p><h3 id=41-一些尚未解决的问题><a href=#41-%e4%b8%80%e4%ba%9b%e5%b0%9a%e6%9c%aa%e8%a7%a3%e5%86%b3%e7%9a%84%e9%97%ae%e9%a2%98>#</a>
+4.1 一些尚未解决的问题</h3><p>Rust 的异步模型允许单个 future 在执行时跨任务迁移。考虑以下代码：</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>futures</span>::<span class=n>future</span>::<span class=n>poll_fn</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=cp>#[tokio::main]</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>async</span><span class=w> </span><span class=k>fn</span> <span class=nf>main</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=n>Duration</span>::<span class=n>from_millis</span><span class=p>(</span><span class=mi>10</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>delay</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>poll_fn</span><span class=p>(</span><span class=k>move</span><span class=w> </span><span class=o>|</span><span class=n>cx</span><span class=o>|</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>delay</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>delay</span><span class=p>.</span><span class=n>take</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>res</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Pin</span>::<span class=n>new</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>delay</span><span class=p>).</span><span class=n>poll</span><span class=p>(</span><span class=n>cx</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=fm>assert!</span><span class=p>(</span><span class=n>res</span><span class=p>.</span><span class=n>is_pending</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>tokio</span>::<span class=n>spawn</span><span class=p>(</span><span class=k>async</span><span class=w> </span><span class=k>move</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>delay</span><span class=p>.</span><span class=k>await</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(())</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}).</span><span class=k>await</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>poll_fn 函数使用闭包创建 Future 实例。在这个例子中，Delay::poll 被不同的 waker 实例调用了不止一次。当发生这种情况时，我们必须确保在传递给最近的 poll 调用的 waker 实例上调用 wake。在实现 future 时，重要的是要假设每个对 poll 的调用都可以提供一个不同的 waker 实例，poll 函数必须用新的 waker 替代之前记录的 waker。</p><p>之前的 Delay 实现在每次轮询时都会生成一个新线程。如果轮询过于频繁（例如 select! 这个 future 和一些其他的 future，当其中一个发生事件时，都要进行轮询），效率会非常低。一种方法是记住是否已经生成了一个新线程，只有在还没有生成一个线程的情况下才生成一个新线程。但是，如果这样做，必须确保线程的 waker 在以后的轮询调用中更新，否则不会唤醒最近的 waker。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>future</span>::<span class=n>Future</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>pin</span>::<span class=n>Pin</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>sync</span>::<span class=p>{</span><span class=n>Arc</span><span class=p>,</span><span class=w> </span><span class=n>Mutex</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>task</span>::<span class=p>{</span><span class=n>Context</span><span class=p>,</span><span class=w> </span><span class=n>Poll</span><span class=p>,</span><span class=w> </span><span class=n>Waker</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>thread</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>struct</span> <span class=nc>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>when</span>: <span class=nc>Instant</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>waker</span>: <span class=nb>Option</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>Mutex</span><span class=o>&lt;</span><span class=n>Waker</span><span class=o>&gt;&gt;&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Future</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Delay</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Output</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>poll</span><span class=p>(</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span>: <span class=nc>Pin</span><span class=o>&lt;&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>Self</span><span class=o>&gt;</span><span class=p>,</span><span class=w> </span><span class=n>cx</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=n>Context</span><span class=o>&lt;</span><span class=nb>&#39;_</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nc>Poll</span><span class=o>&lt;</span><span class=p>()</span><span class=o>&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>waker</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=o>&amp;</span><span class=bp>self</span><span class=p>.</span><span class=n>waker</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>waker</span><span class=p>.</span><span class=n>lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>if</span><span class=w> </span><span class=o>!</span><span class=n>waker</span><span class=p>.</span><span class=n>will_wake</span><span class=p>(</span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>())</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=o>*</span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>().</span><span class=n>clone</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=kd>let</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Mutex</span>::<span class=n>new</span><span class=p>(</span><span class=n>cx</span><span class=p>.</span><span class=n>waker</span><span class=p>().</span><span class=n>clone</span><span class=p>()));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=bp>self</span><span class=p>.</span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>waker</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>thread</span>::<span class=n>spawn</span><span class=p>(</span><span class=k>move</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=kd>let</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=k>if</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>&lt;</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                    </span><span class=n>thread</span>::<span class=n>sleep</span><span class=p>(</span><span class=n>when</span><span class=w> </span><span class=o>-</span><span class=w> </span><span class=n>now</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=kd>let</span><span class=w> </span><span class=n>waker</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>waker</span><span class=p>.</span><span class=n>lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>waker</span><span class=p>.</span><span class=n>wake_by_ref</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>&gt;=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Ready</span><span class=p>(())</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>Poll</span>::<span class=n>Pending</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>这里有点复杂，核心思想是每次调用 poll 时，future 检查提供的 waker 是否与先前记录的 waker 匹配。如果两个 waker 不匹配，需要更新记录的 waker。</p><h3 id=42-notify-实用工具><a href=#42-notify-%e5%ae%9e%e7%94%a8%e5%b7%a5%e5%85%b7>#</a>
+4.2 notify 实用工具</h3><p>wakers 是异步 Rust 工作的基础，通常没有必要降低到这个层次编写代码。在 Delay 的例子中，通过使用 tokio::sync::Notify 实用程序完全使用 async/await 来实现它。这个实用程序提供了一个基本的任务通知机制，它处理 waker 的细节，包括确保记录的 waker 与当前任务匹配。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>use</span><span class=w> </span><span class=n>tokio</span>::<span class=n>sync</span>::<span class=n>Notify</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>sync</span>::<span class=n>Arc</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>time</span>::<span class=p>{</span><span class=n>Duration</span><span class=p>,</span><span class=w> </span><span class=n>Instant</span><span class=p>};</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>use</span><span class=w> </span><span class=n>std</span>::<span class=n>thread</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>async</span><span class=w> </span><span class=k>fn</span> <span class=nf>delay</span><span class=p>(</span><span class=n>dur</span>: <span class=nc>Duration</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=n>dur</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>notify</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Notify</span>::<span class=n>new</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>notify_clone</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>notify</span><span class=p>.</span><span class=n>clone</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>thread</span>::<span class=n>spawn</span><span class=p>(</span><span class=k>move</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Instant</span>::<span class=n>now</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>now</span><span class=w> </span><span class=o>&lt;</span><span class=w> </span><span class=n>when</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>thread</span>::<span class=n>sleep</span><span class=p>(</span><span class=n>when</span><span class=w> </span><span class=o>-</span><span class=w> </span><span class=n>now</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>notify_clone</span><span class=p>.</span><span class=n>notify_one</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>});</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>notify</span><span class=p>.</span><span class=n>notified</span><span class=p>().</span><span class=k>await</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><h3 id=43-定义-trait-中的异步方法><a href=#43-%e5%ae%9a%e4%b9%89-trait-%e4%b8%ad%e7%9a%84%e5%bc%82%e6%ad%a5%e6%96%b9%e6%b3%95>#</a>
+4.3 定义 trait 中的异步方法</h3><p>在 Rust 中，异步方法通过 async 关键字来定义，然而，trait 不能直接定义异步方法。异步方法的处理需要在运行时处理 Future，这种处理依赖于特定的异步运行时环境，这导致了异步方法的实现涉及到更多的运行时支持，而 trait 的设计初衷在于提供一种在编译时进行静态分发的方法。</p><p>为了在 trait 中支持异步方法，需要引入更复杂的机制，目前常见的使用方法是通过 async-trait crate 来实现定义 trait 中的异步方法。总的来说，Rust 的设计哲学是尽可能提供简单、静态的机制来支持各种编程范式，而异步编程则引入了一些动态的概念。这两者之间的差异导致了异步方法不直接支持 trait 的原因。</p><blockquote><p>值得一提的是，最新的 Rust 版本在近期已经提供了 async trait 的支持。</p><p><a class=link href=https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html target=_blank rel=noopener>https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html</a></p></blockquote><h2 id=参考资料><a href=#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99>#</a>
+参考资料</h2><ul><li><a class=link href=https://tokio.rs/tokio/tutorial/async target=_blank rel=noopener>https://tokio.rs/tokio/tutorial/async</a></li></ul></section><footer class=article-footer><section class=article-tags><a href=/blog/tags/rust/>Rust</a></section><section class=article-copyright><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copyright" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><path d="M14.5 9a3.5 4 0 100 6"/></svg>
+<span>Licensed under CC BY-NC-SA 4.0</span></section><section class=article-lastmod><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-clock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+<span>Last updated on Nov 03, 2023 00:00 UTC</span></section></footer></article><aside class=related-content--wrapper><h2 class=section-title>Related content</h2><div class=related-content><div class="flex article-list--tile"><article><a href=/blog/p/mini-monoio/><div class=article-details><h2 class=article-title>基于 thread-per-core 模型的 Rust 异步运行时 mini-monoio 实现示例</h2></div></a></article><article><a href=/blog/p/mini-bitcask/><div class=article-details><h2 class=article-title>基于 bitcask 存储模型的 mini kv 数据库实现</h2></div></a></article><article><a href=/blog/p/mini-paxos/><div class=article-details><h2 class=article-title>分布式共识算法之 Paxos 算法模拟</h2></div></a></article><article class=has-image><a href=/blog/p/mini-rayon/><div class=article-image><img src=/blog/p/mini-rayon/cover.79f03f2013607bf6678945ac7ad812ac_hu8e48a4fdf6f1fa9f3ddf76ee9d927c43_321490_250x150_fill_q75_box_smart1.jpg width=250 height=150 loading=lazy alt="Featured image of post 数据并行计算框架 mini-rayon 实现" data-key=mini-rayon data-hash="md5-efA/IBNge/ZniUWsetgSrA=="></div><div class=article-details><h2 class=article-title>数据并行计算框架 mini-rayon 实现</h2></div></a></article><article><a href=/blog/p/mini-dns/><div class=article-details><h2 class=article-title>mini-dns 一个最小化 DNS 客户端实现</h2></div></a></article></div></div></aside><footer class=site-footer><section class=copyright>&copy;
+2020 -
+2024 zjregee</section><section class=powerby>Built with <a href=https://gohugo.io/ target=_blank rel=noopener>Hugo</a><br>Theme <b><a href=https://github.com/CaiJimmy/hugo-theme-stack target=_blank rel=noopener data-version=3.25.0>Stack</a></b> designed by <a href=https://jimmycai.com target=_blank rel=noopener>Jimmy</a></section></footer><div class=pswp tabindex=-1 role=dialog aria-hidden=true><div class=pswp__bg></div><div class=pswp__scroll-wrap><div class=pswp__container><div class=pswp__item></div><div class=pswp__item></div><div class=pswp__item></div></div><div class="pswp__ui pswp__ui--hidden"><div class=pswp__top-bar><div class=pswp__counter></div><button class="pswp__button pswp__button--close" title="Close (Esc)"></button>
+<button class="pswp__button pswp__button--share" title=Share></button>
+<button class="pswp__button pswp__button--fs" title="Toggle fullscreen"></button>
+<button class="pswp__button pswp__button--zoom" title="Zoom in/out"></button><div class=pswp__preloader><div class=pswp__preloader__icn><div class=pswp__preloader__cut><div class=pswp__preloader__donut></div></div></div></div></div><div class="pswp__share-modal pswp__share-modal--hidden pswp__single-tap"><div class=pswp__share-tooltip></div></div><button class="pswp__button pswp__button--arrow--left" title="Previous (arrow left)">
+</button>
+<button class="pswp__button pswp__button--arrow--right" title="Next (arrow right)"></button><div class=pswp__caption><div class=pswp__caption__center></div></div></div></div></div><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.js integrity="sha256-ePwmChbbvXbsO02lbM3HoHbSHTHFAeChekF1xKJdleo=" crossorigin=anonymous defer></script><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe-ui-default.min.js integrity="sha256-UKkzOn/w1mBxRmLLGrSeyB4e1xbrp4xylgAWb3M42pU=" crossorigin=anonymous defer></script><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/default-skin/default-skin.min.css crossorigin=anonymous><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.css crossorigin=anonymous></main></div><script src=https://cdn.jsdelivr.net/npm/node-vibrant@3.1.6/dist/vibrant.min.js integrity="sha256-awcR2jno4kI5X0zL8ex0vi2z+KMkF24hUW8WePSA9HM=" crossorigin=anonymous></script><script type=text/javascript src=/blog/ts/main.js defer></script><script>(function(){const e=document.createElement("link");e.href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap",e.type="text/css",e.rel="stylesheet",document.head.appendChild(e)})()</script></body></html>

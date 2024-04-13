@@ -1,0 +1,730 @@
+<!doctype html><html lang=en-us dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content="本文是 mini 系列的第二篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文参考 Rust 语言的知名数据并行计算框架 Rayon 实现了一个小型的数据并行计算框架 mini-rayon，并基于 mini-rayon 进行了一系列的并行计算测试，取得了一定程度上的性能提升。 Rayon 项目地址：https://github.com/rayon-rs/rayon mini-rayon 代码实现地址：https://github.com/zjregee/mini/mini-rayon # 一、数据并行计算框架 # 1.1 并行计算框架介绍 并行计算是一种通过执行多个计算任务来提高计算效率的计算范式。与传统的串行计算方式不同，其中每个任务按顺序执行，而并行计算允许多个任务同时进行，从而在相同的时间内处理更多的数据或完成更复杂的计算任务。并行计算的核心思想是任务分解与并发执行。在并行计算中，大的计算任务被分解成许多小的子任务，这些子任务可以独立地并行执行。这种分解使得计算机系统能够更好地利用多个处理单元或多台计算机的资源，加速整体计算过程。分布在多个处理单元上的任务之间通过合理的协同工作方式实现协同完成整体任务。 并行计算的应用范围广泛，例如在科学研究中，通过并行计算可以更快地模拟复杂的物理现象、分析遗传数据或着优化化学反应。在工程领域，有限元分析、流体力学模拟等复杂问题也常常需要并行计算来提高效率。此外，在人工智能、大数据分析等领域，通过并行计算可以更快速地训练深度学习模型、处理海量数据。尽管并行计算提供了显著的性能提升，但其开发和管理复杂性也是不可忽视的挑战。为了有效利用并行计算的优势，需要仔细设计并行算法、选择合适的并行计算架构，并进行良好的任务调度和数据管理，处理任务分解的复杂性、通信开销、数据一致性等问题。 为了充分发挥并行计算的优势，开发人员通常需要使用专门的并行计算库和工具。这些库不仅提供了高效的并行算法实现，还简化了任务调度、数据共享和通信等方面的复杂工作。 一些广泛使用的并行计算库包括 OpenMP 和 MPI。OpenMP 适用于共享内存并行，通过简单的指令注释即可将串行代码转换为并行代码，使得开发人员能够轻松地利用多核处理器。而 MPI 则更适用于分布式内存并行，提供了丰富的消息传递机制，使不同计算节点上的任务能够协同工作。除了这些基础性的库之外，还有一些针对特定领域的高级并行计算框架，如 TensorFlow 和 Pytorch 用于深度学习，Hadoop 和 Spark 用于大数据处理。这些框架在底层实现了复杂的并行计算模型，使开发人员能够专注于问题领域而不是底层的并行细节。 并行计算在不同编程语言中有着不同的实现方式，同时针对各种计算场景有着各种成熟的并行计算框架实现。通过使用这些并行计算库和框架，开发人员能够在降低开发难度的同时，更有效地利用计算资源，实现复杂问题的快速解决。 Python 的 Ray 和 Rust 的 Rayon 是两个典型的例子，Ray 是一个用于构建分布式应用和并行计算的高性能框架，它特别适用于处理大规模数据和执行复杂任务。Ray 提供了任务并行性和数据并行性的支持，允许用户轻松地并行化 Python 代码。它还具有分布式计算的能力，可以在多台计算机上执行任务。Rayon 是 Rust 的一个并行计算库，它通过简化并行性的表达方式，使得在不引入显式锁的情况下能够轻松地实现并行计算。Rayon 使用工作窃取算法，自动管理线程池，使得开发者能够更轻松地编写高性能的并行 Rust 代码。除了 Ray 和 Rayon，Java 中的 Fork/Join 框架，Go 中的 goroutines 和 channels 也是一些成熟的并行计算框架。 # 1.2 数据并行与任务并行 数据并行和任务并行是两种广泛应用于并行计算领域的并行计算模型，它们分别关注并行处理数据和并行执行任务。在数据并行中，计算任务被划分成多个相似的子任务，并且这些子任务同时在不同的处理单元上执行。数据中心的主要思想是并行地处理相同的计算操作，但是在不同的数据集上。这样的模型特别适用于处理大规模数据集，例如矩阵运算、图像处理等。在任务并行中，计算任务被分解成多个相对独立的子任务，并且这些子任务在不同的处理单元上并行执行。任务并行通常关注于同时执行不同的计算任务，每个任务可以有不同的计算流程，但它们协同完成整个计算任务。任务并行中的各个任务之间可能需要协同工作。"><title>数据并行计算框架 mini-rayon 实现</title>
+<link rel=canonical href=https://zjregee.github.io/blog/p/mini-rayon/><link rel=stylesheet href=/blog/scss/style.min.8e60baf4cd3fc55968717a6e39762f4d28ed7ef6007566b6c7970ad0fe907198.css><meta property='og:title' content="数据并行计算框架 mini-rayon 实现"><meta property='og:description' content="本文是 mini 系列的第二篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文参考 Rust 语言的知名数据并行计算框架 Rayon 实现了一个小型的数据并行计算框架 mini-rayon，并基于 mini-rayon 进行了一系列的并行计算测试，取得了一定程度上的性能提升。 Rayon 项目地址：https://github.com/rayon-rs/rayon mini-rayon 代码实现地址：https://github.com/zjregee/mini/mini-rayon # 一、数据并行计算框架 # 1.1 并行计算框架介绍 并行计算是一种通过执行多个计算任务来提高计算效率的计算范式。与传统的串行计算方式不同，其中每个任务按顺序执行，而并行计算允许多个任务同时进行，从而在相同的时间内处理更多的数据或完成更复杂的计算任务。并行计算的核心思想是任务分解与并发执行。在并行计算中，大的计算任务被分解成许多小的子任务，这些子任务可以独立地并行执行。这种分解使得计算机系统能够更好地利用多个处理单元或多台计算机的资源，加速整体计算过程。分布在多个处理单元上的任务之间通过合理的协同工作方式实现协同完成整体任务。 并行计算的应用范围广泛，例如在科学研究中，通过并行计算可以更快地模拟复杂的物理现象、分析遗传数据或着优化化学反应。在工程领域，有限元分析、流体力学模拟等复杂问题也常常需要并行计算来提高效率。此外，在人工智能、大数据分析等领域，通过并行计算可以更快速地训练深度学习模型、处理海量数据。尽管并行计算提供了显著的性能提升，但其开发和管理复杂性也是不可忽视的挑战。为了有效利用并行计算的优势，需要仔细设计并行算法、选择合适的并行计算架构，并进行良好的任务调度和数据管理，处理任务分解的复杂性、通信开销、数据一致性等问题。 为了充分发挥并行计算的优势，开发人员通常需要使用专门的并行计算库和工具。这些库不仅提供了高效的并行算法实现，还简化了任务调度、数据共享和通信等方面的复杂工作。 一些广泛使用的并行计算库包括 OpenMP 和 MPI。OpenMP 适用于共享内存并行，通过简单的指令注释即可将串行代码转换为并行代码，使得开发人员能够轻松地利用多核处理器。而 MPI 则更适用于分布式内存并行，提供了丰富的消息传递机制，使不同计算节点上的任务能够协同工作。除了这些基础性的库之外，还有一些针对特定领域的高级并行计算框架，如 TensorFlow 和 Pytorch 用于深度学习，Hadoop 和 Spark 用于大数据处理。这些框架在底层实现了复杂的并行计算模型，使开发人员能够专注于问题领域而不是底层的并行细节。 并行计算在不同编程语言中有着不同的实现方式，同时针对各种计算场景有着各种成熟的并行计算框架实现。通过使用这些并行计算库和框架，开发人员能够在降低开发难度的同时，更有效地利用计算资源，实现复杂问题的快速解决。 Python 的 Ray 和 Rust 的 Rayon 是两个典型的例子，Ray 是一个用于构建分布式应用和并行计算的高性能框架，它特别适用于处理大规模数据和执行复杂任务。Ray 提供了任务并行性和数据并行性的支持，允许用户轻松地并行化 Python 代码。它还具有分布式计算的能力，可以在多台计算机上执行任务。Rayon 是 Rust 的一个并行计算库，它通过简化并行性的表达方式，使得在不引入显式锁的情况下能够轻松地实现并行计算。Rayon 使用工作窃取算法，自动管理线程池，使得开发者能够更轻松地编写高性能的并行 Rust 代码。除了 Ray 和 Rayon，Java 中的 Fork/Join 框架，Go 中的 goroutines 和 channels 也是一些成熟的并行计算框架。 # 1.2 数据并行与任务并行 数据并行和任务并行是两种广泛应用于并行计算领域的并行计算模型，它们分别关注并行处理数据和并行执行任务。在数据并行中，计算任务被划分成多个相似的子任务，并且这些子任务同时在不同的处理单元上执行。数据中心的主要思想是并行地处理相同的计算操作，但是在不同的数据集上。这样的模型特别适用于处理大规模数据集，例如矩阵运算、图像处理等。在任务并行中，计算任务被分解成多个相对独立的子任务，并且这些子任务在不同的处理单元上并行执行。任务并行通常关注于同时执行不同的计算任务，每个任务可以有不同的计算流程，但它们协同完成整个计算任务。任务并行中的各个任务之间可能需要协同工作。"><meta property='og:url' content='https://zjregee.github.io/blog/p/mini-rayon/'><meta property='og:site_name' content='zjregee'><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Rust'><meta property='article:published_time' content='2023-09-28T00:00:00+00:00'><meta property='article:modified_time' content='2023-09-28T00:00:00+00:00'><meta property='og:image' content='https://zjregee.github.io/blog/p/mini-rayon/cover.jpg'><meta name=twitter:title content="数据并行计算框架 mini-rayon 实现"><meta name=twitter:description content="本文是 mini 系列的第二篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文参考 Rust 语言的知名数据并行计算框架 Rayon 实现了一个小型的数据并行计算框架 mini-rayon，并基于 mini-rayon 进行了一系列的并行计算测试，取得了一定程度上的性能提升。 Rayon 项目地址：https://github.com/rayon-rs/rayon mini-rayon 代码实现地址：https://github.com/zjregee/mini/mini-rayon # 一、数据并行计算框架 # 1.1 并行计算框架介绍 并行计算是一种通过执行多个计算任务来提高计算效率的计算范式。与传统的串行计算方式不同，其中每个任务按顺序执行，而并行计算允许多个任务同时进行，从而在相同的时间内处理更多的数据或完成更复杂的计算任务。并行计算的核心思想是任务分解与并发执行。在并行计算中，大的计算任务被分解成许多小的子任务，这些子任务可以独立地并行执行。这种分解使得计算机系统能够更好地利用多个处理单元或多台计算机的资源，加速整体计算过程。分布在多个处理单元上的任务之间通过合理的协同工作方式实现协同完成整体任务。 并行计算的应用范围广泛，例如在科学研究中，通过并行计算可以更快地模拟复杂的物理现象、分析遗传数据或着优化化学反应。在工程领域，有限元分析、流体力学模拟等复杂问题也常常需要并行计算来提高效率。此外，在人工智能、大数据分析等领域，通过并行计算可以更快速地训练深度学习模型、处理海量数据。尽管并行计算提供了显著的性能提升，但其开发和管理复杂性也是不可忽视的挑战。为了有效利用并行计算的优势，需要仔细设计并行算法、选择合适的并行计算架构，并进行良好的任务调度和数据管理，处理任务分解的复杂性、通信开销、数据一致性等问题。 为了充分发挥并行计算的优势，开发人员通常需要使用专门的并行计算库和工具。这些库不仅提供了高效的并行算法实现，还简化了任务调度、数据共享和通信等方面的复杂工作。 一些广泛使用的并行计算库包括 OpenMP 和 MPI。OpenMP 适用于共享内存并行，通过简单的指令注释即可将串行代码转换为并行代码，使得开发人员能够轻松地利用多核处理器。而 MPI 则更适用于分布式内存并行，提供了丰富的消息传递机制，使不同计算节点上的任务能够协同工作。除了这些基础性的库之外，还有一些针对特定领域的高级并行计算框架，如 TensorFlow 和 Pytorch 用于深度学习，Hadoop 和 Spark 用于大数据处理。这些框架在底层实现了复杂的并行计算模型，使开发人员能够专注于问题领域而不是底层的并行细节。 并行计算在不同编程语言中有着不同的实现方式，同时针对各种计算场景有着各种成熟的并行计算框架实现。通过使用这些并行计算库和框架，开发人员能够在降低开发难度的同时，更有效地利用计算资源，实现复杂问题的快速解决。 Python 的 Ray 和 Rust 的 Rayon 是两个典型的例子，Ray 是一个用于构建分布式应用和并行计算的高性能框架，它特别适用于处理大规模数据和执行复杂任务。Ray 提供了任务并行性和数据并行性的支持，允许用户轻松地并行化 Python 代码。它还具有分布式计算的能力，可以在多台计算机上执行任务。Rayon 是 Rust 的一个并行计算库，它通过简化并行性的表达方式，使得在不引入显式锁的情况下能够轻松地实现并行计算。Rayon 使用工作窃取算法，自动管理线程池，使得开发者能够更轻松地编写高性能的并行 Rust 代码。除了 Ray 和 Rayon，Java 中的 Fork/Join 框架，Go 中的 goroutines 和 channels 也是一些成熟的并行计算框架。 # 1.2 数据并行与任务并行 数据并行和任务并行是两种广泛应用于并行计算领域的并行计算模型，它们分别关注并行处理数据和并行执行任务。在数据并行中，计算任务被划分成多个相似的子任务，并且这些子任务同时在不同的处理单元上执行。数据中心的主要思想是并行地处理相同的计算操作，但是在不同的数据集上。这样的模型特别适用于处理大规模数据集，例如矩阵运算、图像处理等。在任务并行中，计算任务被分解成多个相对独立的子任务，并且这些子任务在不同的处理单元上并行执行。任务并行通常关注于同时执行不同的计算任务，每个任务可以有不同的计算流程，但它们协同完成整个计算任务。任务并行中的各个任务之间可能需要协同工作。"><meta name=twitter:card content="summary_large_image"><meta name=twitter:image content='https://zjregee.github.io/blog/p/mini-rayon/cover.jpg'><link rel="shortcut icon" href=/favicon.png></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label="Toggle Menu">
+<span class=hamburger-box><span class=hamburger-inner></span></span></button><header><figure class=site-avatar><a href=/blog/><img src=/blog/img/avatar_huf8b2b345a9bb285ed8c532b05217afba_16572_300x0_resize_q75_box.jpg width=300 height=300 class=site-logo loading=lazy alt=Avatar>
+</a><span class=emoji>👻</span></figure><div class=site-meta><h1 class=site-name><a href=/blog>zjregee</a></h1><h2 class=site-description>Enjoy The Moment.</h2></div></header><ol class=menu id=main-menu><li><a href=/blog/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-home" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><polyline points="5 12 3 12 12 3 21 12 19 12"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6"/></svg>
+<span>Home</span></a></li><li><a href=/blog/search/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-search" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="10" cy="10" r="7"/><line x1="21" y1="21" x2="15" y2="15"/></svg>
+<span>Search</span></a></li><li class=menu-bottom-section><ol class=menu><li id=dark-mode-toggle><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-left" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="8" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-right" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<span>Dark Mode</span></li></ol></li></ol></aside><aside class="sidebar right-sidebar sticky"><section class="widget archives"><div class=widget-icon><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-hash" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="11" y1="4" x2="7" y2="20"/><line x1="17" y1="4" x2="13" y2="20"/></svg></div><h2 class="widget-title section-title">Table of contents</h2><div class=widget--toc><nav id=TableOfContents><ul><li><a href=#一数据并行计算框架>一、数据并行计算框架</a><ul><li><a href=#11-并行计算框架介绍>1.1 并行计算框架介绍</a></li><li><a href=#12-数据并行与任务并行>1.2 数据并行与任务并行</a></li></ul></li><li><a href=#二任务调度算法实现>二、任务调度算法实现</a><ul><li><a href=#21-工作窃取队列>2.1 工作窃取队列</a></li><li><a href=#22工作窃取机制>2.2、工作窃取机制</a></li></ul></li><li><a href=#三mini-rayon-框架介绍>三、mini-rayon 框架介绍</a></li><li><a href=#四框架根基--join-原语>四、框架根基 —— join 原语</a><ul><li><a href=#41-潜在并行性>4.1 潜在并行性</a></li><li><a href=#42-快排实现用例>4.2 快排实现用例</a></li><li><a href=#43-join-原语中的任务调度>4.3 join 原语中的任务调度</a></li><li><a href=#44-数据结构抽象>4.4 数据结构抽象</a><ul><li><a href=#441-任务数据结构>4.4.1 任务数据结构</a></li><li><a href=#442-任务注册管理>4.4.2 任务注册管理</a></li><li><a href=#443-工作线程数据结构>4.4.3 工作线程数据结构</a></li></ul></li><li><a href=#45-接口设计与实现>4.5 接口设计与实现</a><ul><li><a href=#451-join>4.5.1 join</a></li><li><a href=#452-thread-pool>4.5.2 thread pool</a></li></ul></li><li><a href=#46-rust-feature-带来的优势>4.6 Rust feature 带来的优势</a><ul><li><a href=#461-最小化任务推送开销>4.6.1 最小化任务推送开销</a></li><li><a href=#462-避免数据竞争>4.6.2 避免数据竞争</a></li></ul></li></ul></li><li><a href=#五构建在-join-之上的并行迭代器>五、构建在 join 之上的并行迭代器</a></li><li><a href=#六框架性能测试>六、框架性能测试</a></li><li><a href=#参考资料>参考资料</a></li></ul></nav></div></section></aside><main class="main full-width"><article class="has-image main-article"><header class=article-header><div class=article-image><a href=/blog/p/mini-rayon/><img src=/blog/p/mini-rayon/cover_hu8e48a4fdf6f1fa9f3ddf76ee9d927c43_321490_800x0_resize_q75_box.jpg srcset="/blog/p/mini-rayon/cover_hu8e48a4fdf6f1fa9f3ddf76ee9d927c43_321490_800x0_resize_q75_box.jpg 800w, /blog/p/mini-rayon/cover_hu8e48a4fdf6f1fa9f3ddf76ee9d927c43_321490_1600x0_resize_q75_box.jpg 1600w" width=800 height=632 loading=lazy alt="Featured image of post 数据并行计算框架 mini-rayon 实现"></a></div><div class=article-details><header class=article-category><a href=/blog/categories/mini-%E7%B3%BB%E5%88%97/>Mini 系列</a></header><div class=article-title-wrapper><h2 class=article-title><a href=/blog/p/mini-rayon/>数据并行计算框架 mini-rayon 实现</a></h2></div><footer class=article-time><div><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-calendar-time" width="56" height="56" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><path d="M11.795 21H5a2 2 0 01-2-2V7a2 2 0 012-2h12a2 2 0 012 2v4"/><circle cx="18" cy="18" r="4"/><path d="M15 3v4"/><path d="M7 3v4"/><path d="M3 11h16"/><path d="M18 16.496V18l1 1"/></svg>
+<time class=article-time--published>Sep 28, 2023</time></div></footer></div></header><section class=article-content><blockquote><p>本文是 mini 系列的第二篇文章，mini 系列是一些知名框架或技术的最小化实现，本系列文章仅作为学习积累的目的，代码或架构在很大程度上参考了现有的一些源码或博客。本文参考 Rust 语言的知名数据并行计算框架 Rayon 实现了一个小型的数据并行计算框架 mini-rayon，并基于 mini-rayon 进行了一系列的并行计算测试，取得了一定程度上的性能提升。</p><p>Rayon 项目地址：https://github.com/rayon-rs/rayon</p><p>mini-rayon 代码实现地址：https://github.com/zjregee/mini/mini-rayon</p></blockquote><h2 id=一数据并行计算框架><a href=#%e4%b8%80%e6%95%b0%e6%8d%ae%e5%b9%b6%e8%a1%8c%e8%ae%a1%e7%ae%97%e6%a1%86%e6%9e%b6>#</a>
+一、数据并行计算框架</h2><h3 id=11-并行计算框架介绍><a href=#11-%e5%b9%b6%e8%a1%8c%e8%ae%a1%e7%ae%97%e6%a1%86%e6%9e%b6%e4%bb%8b%e7%bb%8d>#</a>
+1.1 并行计算框架介绍</h3><p>并行计算是一种通过执行多个计算任务来提高计算效率的计算范式。与传统的串行计算方式不同，其中每个任务按顺序执行，而并行计算允许多个任务同时进行，从而在相同的时间内处理更多的数据或完成更复杂的计算任务。并行计算的核心思想是任务分解与并发执行。在并行计算中，大的计算任务被分解成许多小的子任务，这些子任务可以独立地并行执行。这种分解使得计算机系统能够更好地利用多个处理单元或多台计算机的资源，加速整体计算过程。分布在多个处理单元上的任务之间通过合理的协同工作方式实现协同完成整体任务。</p><p>并行计算的应用范围广泛，例如在科学研究中，通过并行计算可以更快地模拟复杂的物理现象、分析遗传数据或着优化化学反应。在工程领域，有限元分析、流体力学模拟等复杂问题也常常需要并行计算来提高效率。此外，在人工智能、大数据分析等领域，通过并行计算可以更快速地训练深度学习模型、处理海量数据。尽管并行计算提供了显著的性能提升，但其开发和管理复杂性也是不可忽视的挑战。为了有效利用并行计算的优势，需要仔细设计并行算法、选择合适的并行计算架构，并进行良好的任务调度和数据管理，处理任务分解的复杂性、通信开销、数据一致性等问题。</p><p>为了充分发挥并行计算的优势，开发人员通常需要使用专门的并行计算库和工具。这些库不仅提供了高效的并行算法实现，还简化了任务调度、数据共享和通信等方面的复杂工作。</p><p>一些广泛使用的并行计算库包括 OpenMP 和 MPI。OpenMP 适用于共享内存并行，通过简单的指令注释即可将串行代码转换为并行代码，使得开发人员能够轻松地利用多核处理器。而 MPI 则更适用于分布式内存并行，提供了丰富的消息传递机制，使不同计算节点上的任务能够协同工作。除了这些基础性的库之外，还有一些针对特定领域的高级并行计算框架，如 TensorFlow 和 Pytorch 用于深度学习，Hadoop 和 Spark 用于大数据处理。这些框架在底层实现了复杂的并行计算模型，使开发人员能够专注于问题领域而不是底层的并行细节。</p><p>并行计算在不同编程语言中有着不同的实现方式，同时针对各种计算场景有着各种成熟的并行计算框架实现。通过使用这些并行计算库和框架，开发人员能够在降低开发难度的同时，更有效地利用计算资源，实现复杂问题的快速解决。</p><p>Python 的 Ray 和 Rust 的 Rayon 是两个典型的例子，Ray 是一个用于构建分布式应用和并行计算的高性能框架，它特别适用于处理大规模数据和执行复杂任务。Ray 提供了任务并行性和数据并行性的支持，允许用户轻松地并行化 Python 代码。它还具有分布式计算的能力，可以在多台计算机上执行任务。Rayon 是 Rust 的一个并行计算库，它通过简化并行性的表达方式，使得在不引入显式锁的情况下能够轻松地实现并行计算。Rayon 使用工作窃取算法，自动管理线程池，使得开发者能够更轻松地编写高性能的并行 Rust 代码。除了 Ray 和 Rayon，Java 中的 Fork/Join 框架，Go 中的 goroutines 和 channels 也是一些成熟的并行计算框架。</p><h3 id=12-数据并行与任务并行><a href=#12-%e6%95%b0%e6%8d%ae%e5%b9%b6%e8%a1%8c%e4%b8%8e%e4%bb%bb%e5%8a%a1%e5%b9%b6%e8%a1%8c>#</a>
+1.2 数据并行与任务并行</h3><p>数据并行和任务并行是两种广泛应用于并行计算领域的并行计算模型，它们分别关注并行处理数据和并行执行任务。在数据并行中，计算任务被划分成多个相似的子任务，并且这些子任务同时在不同的处理单元上执行。数据中心的主要思想是并行地处理相同的计算操作，但是在不同的数据集上。这样的模型特别适用于处理大规模数据集，例如矩阵运算、图像处理等。在任务并行中，计算任务被分解成多个相对独立的子任务，并且这些子任务在不同的处理单元上并行执行。任务并行通常关注于同时执行不同的计算任务，每个任务可以有不同的计算流程，但它们协同完成整个计算任务。任务并行中的各个任务之间可能需要协同工作。</p><p>数据并行和任务并行分别强调了在处理大规模计算问题时的不同方面，数据并行关注如何同时处理相似的计算任务在不同数据上，而任务并行关注如何同时执行不同的计算任务。在实际应用中，这两种并行计算模型可以结合使用，以最大程度地发挥计算资源的潜力，提高计算效率。</p><h2 id=二任务调度算法实现><a href=#%e4%ba%8c%e4%bb%bb%e5%8a%a1%e8%b0%83%e5%ba%a6%e7%ae%97%e6%b3%95%e5%ae%9e%e7%8e%b0>#</a>
+二、任务调度算法实现</h2><p>基于工作窃取队列实现的任务调度算法在并行计算中是一种常见的调度算法，其旨在充分利用多核处理器的性能，减少线程间的竞争和等待时间。这种算法特别适用于任务并行模型，其中任务被划分成多个子任务，并且这些子任务在不同的处理单元上并行执行。</p><p>工作窃取队列的核心是通过任务的动态调度来实现负载均衡。每个线程都维护一个本地任务队列，其中存放了该线程需要执行的任务。当一个线程完成自己的任务时，它会首先从自己的本地队列中获取新的任务执行。如果本地队列为空时，使用工作窃取算法使得空闲线程可以从其他线程的队列中窃取任务。每个线程都有一个双端队列，当一个线程需要任务执行时，它会从队列的前端取出任务执行。这种方式有效地避免了线程之间的锁竞争，提高了整体的并行性。任务在被执行的过程中可能会被分割成更小的子任务。这样，每个线程都有机会在本地队列中保持一定数量的任务，提高并行性。</p><p>基于工作窃取队列实现的任务调度算法主要有三个优点：（1）负载均衡。工作窃取队列实现算法能够在运行时自适应地实现负载均衡，保证各个线程的工作量相对均匀，提高整体性能。（2）避免锁竞争。通过将任务放置在双端队列中，线程之间无需共享锁来保护队列的操作，减少了锁竞争的可能性，提高了并行性。（3）适应性。由于工作窃取队列算法能够根据任务的执行情况动态调整任务的分配和窃取策略，因此对于各种负载情况都能表现出较好的适应性。</p><h3 id=21-工作窃取队列><a href=#21-%e5%b7%a5%e4%bd%9c%e7%aa%83%e5%8f%96%e9%98%9f%e5%88%97>#</a>
+2.1 工作窃取队列</h3><p>无锁工作窃取队列有多种算法实现，包括 Chase-Lev、Treiber、M&amp;S 算法等。接下来主要介绍介常见的 Chase-Lev 算法和 Treiber 算法实现逻辑：</p><ul><li>Chase-Lev 算法使用双端队列来组织任务，这个队列具有两个端，一个用于入队，另一个用于出队和工作窃取。队列中的每个任务节点包含了指向前一个和后一个节点的指针。<ul><li>入队操作：当一个线程需要入队时，它会创建一个新的节点，将任务存放在节点中，然后通过 CAS 操作将这个新节点插入到队列的入队端。</li><li>出队操作：出队操作是指从队列的出队端移除节点。由于是双端队列，线程可以直接从自己的队列的出队端执行出队操作，无需使用 CAS 操作。</li><li>工作窃取操作：当一个线程需要执行任务时，它首先从自己的队列的出队端取得任务。如果自己的队列为空，那么它会随机选择其他线程的队列，尝试从队列的入队端窃取任务。这个过程被称为工作窃取。</li></ul></li><li>Treiber 算法使用单向链表来实现队列结构。队列中的每个任务节点包含指向下一个节点的指针。<ul><li>入队操作：当一个线程需要入队时，它会首先创建一个新的节点，将任务存放在节点中。然后，它将新节点的指针设置为当前队列的头部，并将队列的头部指针指向新节点。这个过程是一个原子操作，通常使用 CAS 来实现。</li><li>出队操作：当一个线程需要出队时，它会读取当前队列的头部指针，获取头部节点。然后，它将队列的头部指针更新为头部节点的下一个节点。出队操作也是一个原子操作。</li><li>工作窃取操作：当一个线程需要执行任务时，它首先尝试从自己队列的头部出队一个任务。如果自己的队列为空，那么它会随机选择其他线程的队列，尝试从队列的头部出队任务。这个过程同样可以使用 CAS 来确保线程之间的竞争安全。</li></ul></li></ul><p>Tiber 算法使用于相对简单的并发场景，任务粒度较大且相对均匀的情况。由于其实现逻辑更为简单，相比于 Chase-Lev 算法更容易实现和维护。</p><blockquote><p>在 mini-rayon 中，采用了 Rayon 早期版本中所使用的基于 Chase-Lev 算法的 dequeue crate。目前 Rayon 所使用的是 crossbeam crate 中实现的无锁工作窃取队列。</p></blockquote><h3 id=22工作窃取机制><a href=#22%e5%b7%a5%e4%bd%9c%e7%aa%83%e5%8f%96%e6%9c%ba%e5%88%b6>#</a>
+2.2、工作窃取机制</h3><p>在任务调度中，除了工作窃取队列，还需要通过工作窃取机制来实现完整的任务调度流程。简单来说，工作窃取机制是决定了何时以及从哪个队列中窃取任务。常见的工作窃取策略包括 Child Stealing 和 Continuation Stealing 机制。</p><p>在 Child Stealing 机制中，每个线程都维护着自己的私有任务队列，当一个线程完成了自己队列中任务时，它会尝试从其他线程的队列中窃取任务来执行。具体来说，当一个线程空闲而其他线程仍有待执行的任务时，它会随机或按照一定策略来选择一个繁忙线程的任务队列，并尝试从队列头部或尾部窃取任务。Child Stealing 机制的优势在于促使任务在各个线程之间更均匀地分布，避免特定线程成为瓶颈。由于任务是按需发生的，这种策略具有较低的竞争程度，减少了线程之间的争夺，提高了整体并行计算的效率。</p><p>在 Continuation Stealing 机制中，将任务划分地更细粒度，讲任务拆分成更小的执行单元，称为 continuations。在这种机制中，每个线程都维护着自己的 continuation 队列，当一个线程完成了一个 continuation 时，它会尝试从其他线程的 continuation 队列中继续窃取任务。这一机制的核心思想是将任务的执行拆解为更小的、相互独立的子任务，使得在窃取任务的过程中更加细粒度和灵活。相比 Child Stealing 机制，Continuation Stealing 机制的优势在于适应了任务的不均衡性和执行时间的不确定性。通过将任务划分为更小的 continuations，系统能够更灵活地在各个线程之间调度的任务，使得执行时间差异较大的任务不至于影响整个系统的性能。这种策略对于需要处理异步时间、任务执行时间变化较大的应用场景特别有效。</p><blockquote><p>Continuation Stealing 机制的实现通常设计复杂的调度器和任务划分逻辑，因为 continuation 的粒度相对较小，需要有效地协调线程之间的任务执行顺序。在使用 Continuation Stealing 机制时，也需要程序员精心设计任务的划分和执行逻辑，以最大程度地发挥这种机制的优势。mini-rayon 通过 Child Stealing 机制实现工作窃取，以实现高效、简单的框架 API，避免为编程引入过多的开发成本。</p></blockquote><h2 id=三mini-rayon-框架介绍><a href=#%e4%b8%89mini-rayon-%e6%a1%86%e6%9e%b6%e4%bb%8b%e7%bb%8d>#</a>
+三、mini-rayon 框架介绍</h2><p>Rayon 是 Rust 中流行的数据并行计算框架，旨在简化并行编程并提高代码性能。它通过简单的 API 和 Rust 的所有权系统来实现并行计算，允许开发者轻松地将现有的迭代代码转换为并行执行的形式。 Rayon 的设计理念是提供一种易于使用的方式来利用多核处理器的性能优势，而无需处理底层的线程管理和同步问题。Rayon 的核心特性之一是并行迭代器，它们允许对集合进行并行操作，并提供了 map、filter 和 reduce 等集合操作的支持。Rayon 通过自动划分工作负载和动态调整线程池的大小来最大程度地利用可用的处理器核心，同时避免了一些常见的并发编程陷阱。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=kd>let</span><span class=w> </span><span class=n>total_price</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>stores</span><span class=p>.</span><span class=n>iter</span><span class=p>()</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>.</span><span class=n>map</span><span class=p>(</span><span class=o>|</span><span class=n>store</span><span class=o>|</span><span class=w> </span><span class=n>store</span><span class=p>.</span><span class=n>compute_price</span><span class=p>(</span><span class=o>&amp;</span><span class=n>list</span><span class=p>))</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>.</span><span class=n>sum</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=kd>let</span><span class=w> </span><span class=n>total_price</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>stores</span><span class=p>.</span><span class=n>par_iter</span><span class=p>()</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>.</span><span class=n>map</span><span class=p>(</span><span class=o>|</span><span class=n>store</span><span class=o>|</span><span class=w> </span><span class=n>store</span><span class=p>.</span><span class=n>compute_price</span><span class=p>(</span><span class=o>&amp;</span><span class=n>list</span><span class=p>))</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                        </span><span class=p>.</span><span class=n>sum</span><span class=p>();</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>mini-rayon 参考 Rayon 实现了一个轻量级的数据并行计算框架，可以轻松地将顺序计算转换为并行计算。例如上面这个常见的顺序迭代计算可以通过使用 mini-rayon 实现的并行迭代器即可将其转换为安全的并行运算。保证并行计算的安全性是使得并行计算框架变得简单易用的很重要的一部分原因。mini-rayon 所实现的并行迭代器将会负责决定如何将数据划分为任务，并通过动态调整来获得最佳性能。</p><h2 id=四框架根基--join-原语><a href=#%e5%9b%9b%e6%a1%86%e6%9e%b6%e6%a0%b9%e5%9f%ba--join-%e5%8e%9f%e8%af%ad>#</a>
+四、框架根基 —— join 原语</h2><h3 id=41-潜在并行性><a href=#41-%e6%bd%9c%e5%9c%a8%e5%b9%b6%e8%a1%8c%e6%80%a7>#</a>
+4.1 潜在并行性</h3><p>mini-rayon 基于基本原语 join 之上构建整个框架。join 的用法非常简单，可以使用如下的两个闭包调用它。join 会当这两个闭包都完成后返回，这个过程可能是并行的。可能并行的过程被称为潜在并行性，这其实是 min-rayon，同样也就是 Rayon 的核心设计原理。潜在并行性根据空闲 CPU 核心是否可用，动态决定是否使用并行线程。通过调用 join 来注释程序指示潜在并行性，并让运行时决定何时利用它。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=n>join</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>do_something</span><span class=p>(),</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=n>do_someting_else</span><span class=p>())</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>这种潜在并行性也是 mini-rayon 相较于其他并行计算框架的关键区别点之一。例如在使用一些线程池并行框架时，如果将两个任务放在不同的线程之上，它们将始终保持并发执行。mini-rayon 中的潜在并行性不仅可以使得 API 变得更简单，还可以提高执行效率。这是因为知道并行何时有利可图是很难提起预测的，并且总是需要有一定量的全局上下文，诸如计算机当前是否有空闲核心，目前正在进行哪些并行操作此类。潜在并行性相较于当前大部分并行计算框架的保证并行性存在鲜明的区别。</p><h3 id=42-快排实现用例><a href=#42-%e5%bf%ab%e6%8e%92%e5%ae%9e%e7%8e%b0%e7%94%a8%e4%be%8b>#</a>
+4.2 快排实现用例</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>partition</span><span class=o>&lt;</span><span class=n>T</span>:<span class=nb>PartialOrd</span><span class=o>+</span><span class=nb>Send</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w> </span>-&gt; <span class=kt>usize</span> <span class=p>{</span><span class=w> </span><span class=o>..</span><span class=p>.</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>quick_sort</span><span class=o>&lt;</span><span class=n>T</span>:<span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&gt;</span><span class=w> </span><span class=mi>1</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>lo</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>hi</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>基于 join 原语，我们可以将上面顺序运行的快排伪代码，方便地修改成如下并行化运行的快排伪代码。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>quick_sort</span><span class=o>&lt;</span><span class=n>T</span>:<span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&gt;</span><span class=w> </span><span class=mi>1</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>lo</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>hi</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><h3 id=43-join-原语中的任务调度><a href=#43-join-%e5%8e%9f%e8%af%ad%e4%b8%ad%e7%9a%84%e4%bb%bb%e5%8a%a1%e8%b0%83%e5%ba%a6>#</a>
+4.3 join 原语中的任务调度</h3><p>join 在具体实现上使用了基于工作窃取机制的任务调度，其基本思想是在每次调用 join(a, b) 时，可以确定两个可以安全并行的任务 a 和 b。由于无法确认是否有空闲线程，当前调用 join 的线程将 b 添加到本地待处理工作队列中，然后立即开始执行 a。同时，还有一组其他活动的线程（通常每个处理器一个线程），每当它空闲时，就会去搜索其他线程的待处理工作队列，如果存在可窃取的任务就会窃取它并自己执行。在这种情况下，当第一个线程忙于执行 a 时，另一个线程可能会出现并开始执行 b。一旦第一个线程完成 a，它就会检查是否有其他线程已经开始执行 b 了。如果没有，第一个线程就继续自己执行 b，如果 b 被其他线程窃取，就需要等待 b 完成，在等待的过程中，第一个线程可以继续从其他处理器中窃取数据，从而尝试帮助推动整个过程完成。这部分的伪代码如下。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>join</span><span class=o>&lt;</span><span class=n>A</span><span class=p>,</span><span class=w> </span><span class=n>B</span><span class=o>&gt;</span><span class=p>(</span><span class=n>oper_a</span>: <span class=nc>A</span><span class=p>,</span><span class=w> </span><span class=n>oper_b</span>: <span class=nc>B</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w> </span><span class=n>A</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>      </span><span class=n>B</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>job</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>push_onto_local_queue</span><span class=p>(</span><span class=n>oper_b</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>oper_a</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>pop_from_local_queue</span><span class=p>(</span><span class=n>oper_b</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>oper_b</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>while</span><span class=w> </span><span class=n>not_yet_complete</span><span class=p>(</span><span class=n>job</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>steal_from_others</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>result_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>job</span><span class=p>.</span><span class=n>result</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>基于工作窃取机制的任务调度能够自然地适应处理器的负载。当每个工作线程都非常忙碌时，join(a, b) 的逻辑上会退化成顺序执行每个闭包。这使得 join 原语的抽象并不会使其比顺序执行代码差，在存在可用线程的情况下，join 原语就可以获得并行性带来的性能提升。</p><h3 id=44-数据结构抽象><a href=#44-%e6%95%b0%e6%8d%ae%e7%bb%93%e6%9e%84%e6%8a%bd%e8%b1%a1>#</a>
+4.4 数据结构抽象</h3><h4 id=441-任务数据结构><a href=#441-%e4%bb%bb%e5%8a%a1%e6%95%b0%e6%8d%ae%e7%bb%93%e6%9e%84>#</a>
+4.4.1 任务数据结构</h4><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>pub</span><span class=w> </span><span class=k>trait</span><span class=w> </span><span class=n>Executable</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>execute</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>pub</span><span class=w> </span><span class=k>struct</span> <span class=nc>Code</span><span class=o>&lt;</span><span class=n>F</span><span class=p>,</span><span class=w> </span><span class=n>R</span><span class=o>&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>func</span>: <span class=nb>Option</span><span class=o>&lt;</span><span class=n>F</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>dest</span>: <span class=o>*</span><span class=k>mut</span><span class=w> </span><span class=nb>Option</span><span class=o>&lt;</span><span class=n>R</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>pub</span><span class=w> </span><span class=k>struct</span> <span class=nc>Job</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>code</span>: <span class=nb>Box</span><span class=o>&lt;</span><span class=k>dyn</span><span class=w> </span><span class=n>Executable</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>latch</span>: <span class=nc>Arc</span><span class=o>&lt;</span><span class=n>Latch</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>unsafe</span><span class=w> </span><span class=k>impl</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Job</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>unsafe</span><span class=w> </span><span class=k>impl</span><span class=w> </span><span class=nb>Sync</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Job</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>在这里，我们实现了三个数据结构来代表 mini-rayon 中的任务执行单元。Job 代表具体执行的任务，code 字段通过 Box 和 dyn 关键字保存了实现 Executable trait 的类型，latch 字段提供了一种锁机制，用于探测任务的完成情况。Code 中的 func 字段保存了需要执行的函数，dest 字段用于保存函数的返回值，即执行结果。此外，我们通过 unsafe impl 为 Job 实现了 Send 和 Sync trait，这是因为 Job 需要在线程之间传递，每个 Job 都有可能会由其他线程来执行。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>impl</span><span class=o>&lt;</span><span class=n>F</span><span class=p>,</span><span class=w> </span><span class=n>R</span><span class=o>&gt;</span><span class=w> </span><span class=n>Executable</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Code</span><span class=o>&lt;</span><span class=n>F</span><span class=p>,</span><span class=w> </span><span class=n>R</span><span class=o>&gt;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>F</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>R</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>execute</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>func</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>func</span><span class=p>.</span><span class=n>take</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>unsafe</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=o>*</span><span class=bp>self</span><span class=p>.</span><span class=n>dest</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>func</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>Job</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>execute</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>code</span><span class=p>.</span><span class=n>execute</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>latch</span><span class=p>.</span><span class=n>set</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>上面是我们为 Code 和 Job 实现的同步执行函数，会通过工作线程调用来完成任务的执行。值得一提的是，我们在任务中保存的函数需要满足 FnOnce() -> R trait bound 。这有两个原因，首先我们在有需要的情况提供了保存任务返回结果的能力，其次 FnOnce、FnMut 和 Fn 是三种不同的表示闭包或函数的 trait，FnOnce trait 表示可以调用一次的闭包，它会获取捕获变量的所有权，FnMut trait 表示可以多次调用的闭包，它可以修改捕获的变量的值，但不会获取其所有权，Fn trait 表示不可变闭包引用，它不能修改捕获的变量的值，也不会获取其所有权，这三个 trait 是一种包含关系，如果一个闭包实现了 FnOnce trait，那么它也能实现 FnMut trait 和 Fn trait，如果一个闭包实现了 FnMut trait，那么它也能实现 Fn trait，在我们的场景下，每个任务只会执行一次，FnOnce trait 通过引入获取变量所有权的限制，不仅更适用于 mini-rayon 的框架语义，也提供了更丰富场景的支持。</p><h4 id=442-任务注册管理><a href=#442-%e4%bb%bb%e5%8a%a1%e6%b3%a8%e5%86%8c%e7%ae%a1%e7%90%86>#</a>
+4.4.2 任务注册管理</h4><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>struct</span> <span class=nc>RegistryState</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>threads_at_work</span>: <span class=kt>usize</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>injected_jobs</span>: <span class=nb>Vec</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>pub</span><span class=w> </span><span class=k>struct</span> <span class=nc>Registry</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>thread_infos</span>: <span class=nb>Vec</span><span class=o>&lt;</span><span class=n>ThreadInfo</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>state</span>: <span class=nc>Mutex</span><span class=o>&lt;</span><span class=n>RegistryState</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>work_available</span>: <span class=nc>Condvar</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>terminated</span>: <span class=nc>AtomicBool</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>unsafe</span><span class=w> </span><span class=k>impl</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Registry</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>unsafe</span><span class=w> </span><span class=k>impl</span><span class=w> </span><span class=nb>Sync</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>Registry</span><span class=w> </span><span class=p>{</span><span class=w> </span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>Registry 负责管理所有工作线程以及任务，因为 Registry 可能需要跨线程共享和传递，所以我们同样需要通过 unsafe impl 为其实现 Send 和 Sync trait。thread_infos 字段记录了每个工作线程的信息，state 字段记录目前活跃工作线程数以及还未分配工作线程的任务，当活跃工作线程数目大于 0 时，由于任务在执行过程中可能会产生新的待执行的任务，所以存在窃取任务的可能，work_available 是信号量，这一信号量的作用是当可能有新的任务可以执行或窃取时，会唤醒沉睡的工作线程数，注意这个地方是可能，而并不能保证一定有新的任务，terminated 字段用于停止整个线程池的运行，在初始化 Registry 时，会创建一定数量的工作线程，默认情况下工作线程数等于主机的 CPU 核心数。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>impl</span><span class=w> </span><span class=n>Registry</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>inject</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>injected_jobs</span>: <span class=nb>Vec</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>state</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>state</span><span class=p>.</span><span class=n>lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>state</span><span class=p>.</span><span class=n>injected_jobs</span><span class=p>.</span><span class=n>extend</span><span class=p>(</span><span class=n>injected_jobs</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>work_available</span><span class=p>.</span><span class=n>notify_all</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>start_working</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>state</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>state</span><span class=p>.</span><span class=n>lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>state</span><span class=p>.</span><span class=n>threads_at_work</span><span class=w> </span><span class=o>+=</span><span class=w> </span><span class=mi>1</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>work_available</span><span class=p>.</span><span class=n>notify_all</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>wait_for_work</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>was_active</span>: <span class=kt>bool</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nb>Option</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>state</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>state</span><span class=p>.</span><span class=n>lock</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>was_active</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>state</span><span class=p>.</span><span class=n>threads_at_work</span><span class=w> </span><span class=o>-=</span><span class=w> </span><span class=mi>1</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>loop</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>if</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>job</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>state</span><span class=p>.</span><span class=n>injected_jobs</span><span class=p>.</span><span class=n>pop</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=k>return</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=n>job</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>if</span><span class=w> </span><span class=n>state</span><span class=p>.</span><span class=n>threads_at_work</span><span class=w> </span><span class=o>&gt;</span><span class=w> </span><span class=mi>0</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=k>return</span><span class=w> </span><span class=nb>None</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>state</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>work_available</span><span class=p>.</span><span class=n>wait</span><span class=p>(</span><span class=n>state</span><span class=p>).</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>Registry 的主要函数包括 inject、start_working 和 wait_for_work。inject 函数用于提交新的任务，因为使用 mini-rayon 进行并行计算加速的线程并不是工作线程，所以提交的新任务会首先放在 Registry 中，当 inject 函数被调用时，会触发 work_available 信号量，任务后续会被工作线程给取走。start_working 和 wait_for_work 函数是内部函数，由工作线程调用。当工作线程开始执行一个新任务时，会通过 start_working 函数告知 Registry，原因在之前已经提到，本质上是告诉 Resgitry 当前有窃取任务的可能。当工作线程没有任务执行时，会调用 wait_for_work 函数，was_active 参数代表工作线程在等待工作之前是否有在执行任务，如果有的话，需要修改目前活跃工作线程数。在工作线程调用 wait_for_work 函数后，会有四种结果，第一种情况没有获取 Registry 的锁，此时会首先等待获取锁，没有锁意味着有其他工作线程在等待任务，那么即使该工作线程获取了锁，也没有任务需要执行，需要继续等待任务，所以这里对于锁的等待是合理的，与任务的等待等价，第二种情况 Registry 存在还未分发的任务，工作线程直接取走该任务并开始执行，第三种情况，当前活跃工作线程数大于 0，放弃从 Registry 中获取任务，尝试去其他工作线程的工作队列中窃取任务，第四种情况，不存在可执行以及可窃取的任务，所以需要在 Registry 中继续等待任务。</p><h4 id=443-工作线程数据结构><a href=#443-%e5%b7%a5%e4%bd%9c%e7%ba%bf%e7%a8%8b%e6%95%b0%e6%8d%ae%e7%bb%93%e6%9e%84>#</a>
+4.4.3 工作线程数据结构</h4><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>struct</span> <span class=nc>ThreadInfo</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>primed</span>: <span class=nc>Latch</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>worker</span>: <span class=nc>Worker</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>stealer</span>: <span class=nc>Stealer</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>pub</span><span class=w> </span><span class=k>struct</span> <span class=nc>WorkerThread</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>registry</span>: <span class=nc>Arc</span><span class=o>&lt;</span><span class=n>Registry</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>index</span>: <span class=kt>usize</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=fm>thread_local!</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>static</span><span class=w> </span><span class=no>WORKER_THREAD_STATE</span>: <span class=nc>RefCell</span><span class=o>&lt;</span><span class=nb>Option</span><span class=o>&lt;</span><span class=n>Arc</span><span class=o>&lt;</span><span class=n>WorkerThread</span><span class=o>&gt;&gt;&gt;</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>RefCell</span>::<span class=n>new</span><span class=p>(</span><span class=nb>None</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>WorkerThread 对应工作线程的数据结构，在 WorkerThread 中保存了指向 Registry 的指针以及 WorkerThread 在线程池中的 index。ThreadInfo 通过 deque crate 中实现的无锁双端队列提供了相应的接口。thread_local! 宏是 Rust 中用于创建线程本地存储的宏，通过 thread_local! 宏可以使得每个工作线程方便地拥有独立的 WorkerThread 实例。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>impl</span><span class=w> </span><span class=n>WorkerThread</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>push</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>job</span>: <span class=nc>Job</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>registry</span><span class=p>.</span><span class=n>thread_infos</span><span class=p>[</span><span class=bp>self</span><span class=p>.</span><span class=n>index</span><span class=p>].</span><span class=n>worker</span><span class=p>.</span><span class=n>push</span><span class=p>(</span><span class=n>job</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>pop</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nb>Option</span><span class=o>&lt;</span><span class=n>Job</span><span class=o>&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>registry</span><span class=p>.</span><span class=n>thread_infos</span><span class=p>[</span><span class=bp>self</span><span class=p>.</span><span class=n>index</span><span class=p>].</span><span class=n>worker</span><span class=p>.</span><span class=n>pop</span><span class=p>()</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>steal_until</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>latch</span>: <span class=nc>Arc</span><span class=o>&lt;</span><span class=n>Latch</span><span class=o>&gt;</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>while</span><span class=w> </span><span class=o>!</span><span class=n>latch</span><span class=p>.</span><span class=n>probe</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=k>if</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=k>mut</span><span class=w> </span><span class=n>job</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>steal_work</span><span class=p>(</span><span class=bp>self</span><span class=p>.</span><span class=n>registry</span><span class=p>.</span><span class=n>clone</span><span class=p>(),</span><span class=w> </span><span class=bp>self</span><span class=p>.</span><span class=n>index</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>job</span><span class=p>.</span><span class=n>execute</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                </span><span class=n>thread</span>::<span class=n>yield_now</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>WorkerThread 提供的主要函数包括 push、pop 和 steal_until。push 用于工作线程在执行任务的过程中，如果任务产生了新的子任务，可以通过 push 函数将任务插入到工作队列中，pop 函数用在工作队列中弹出一个任务，由于 join 原语往往会一次提交两个任务，并且需要同时返回两个任务的结果，所以 steal_until 函数用于在第二个任务被其他工作线程窃取时，等待该任务被其他工作线程执行完成的期间去其他工作线程窃取任务执行。</p><h3 id=45-接口设计与实现><a href=#45-%e6%8e%a5%e5%8f%a3%e8%ae%be%e8%ae%a1%e4%b8%8e%e5%ae%9e%e7%8e%b0>#</a>
+4.5 接口设计与实现</h3><h4 id=451-join><a href=#451-join>#</a>
+4.5.1 join</h4><p>在完成了上一小节中，我们对于整个 mini-rayon 框架的核心数据结构抽象后，我们就可以通过这些数据结构完成 join 语言的接口设计与实现。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>join</span><span class=o>&lt;</span><span class=n>A</span><span class=p>,</span><span class=w> </span><span class=no>RA</span><span class=p>,</span><span class=w> </span><span class=n>B</span><span class=p>,</span><span class=w> </span><span class=no>RB</span><span class=o>&gt;</span><span class=p>(</span><span class=n>oper_a</span>: <span class=nc>A</span><span class=p>,</span><span class=w> </span><span class=n>oper_b</span>: <span class=nc>B</span><span class=p>)</span><span class=w> </span>-&gt; <span class=p>(</span><span class=no>RA</span><span class=p>,</span><span class=w> </span><span class=no>RB</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>A</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>RA</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>B</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>RB</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=no>RA</span>: <span class=nb>Send</span> <span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=no>RB</span>: <span class=nb>Send</span> <span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>worker_thread</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>WorkerThread</span>::<span class=n>current</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>worker_thread</span><span class=p>.</span><span class=n>is_none</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>return</span><span class=w> </span><span class=n>join_inject</span><span class=p>(</span><span class=n>oper_a</span><span class=p>,</span><span class=w> </span><span class=n>oper_b</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>worker_thread</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>worker_thread</span><span class=p>.</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>result_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>None</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>code_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Code</span>::<span class=n>new</span><span class=p>(</span><span class=n>oper_b</span><span class=p>,</span><span class=w> </span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>result_b</span><span class=w> </span><span class=k>as</span><span class=w> </span><span class=o>*</span><span class=k>mut</span><span class=w> </span><span class=nb>Option</span><span class=o>&lt;</span><span class=no>RB</span><span class=o>&gt;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>latch_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Latch</span>::<span class=n>new</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>job_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Job</span>::<span class=n>new</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>new</span><span class=p>(</span><span class=n>code_b</span><span class=p>),</span><span class=w> </span><span class=n>latch_b</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>worker_thread</span><span class=p>.</span><span class=n>push</span><span class=p>(</span><span class=n>job_b</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>result_a</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>oper_a</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=kd>let</span><span class=w> </span><span class=nb>Some</span><span class=p>(</span><span class=k>mut</span><span class=w> </span><span class=n>job_b</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>worker_thread</span><span class=p>.</span><span class=n>pop</span><span class=p>()</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>job_b</span><span class=p>.</span><span class=n>execute</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>worker_thread</span><span class=p>.</span><span class=n>steal_until</span><span class=p>(</span><span class=n>latch_b</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>(</span><span class=n>result_a</span><span class=p>,</span><span class=w> </span><span class=n>result_b</span><span class=p>.</span><span class=n>unwrap</span><span class=p>())</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>join_inject</span><span class=o>&lt;</span><span class=n>A</span><span class=p>,</span><span class=w> </span><span class=no>RA</span><span class=p>,</span><span class=w> </span><span class=n>B</span><span class=p>,</span><span class=w> </span><span class=no>RB</span><span class=o>&gt;</span><span class=p>(</span><span class=n>oper_a</span>: <span class=nc>A</span><span class=p>,</span><span class=w> </span><span class=n>oper_b</span>: <span class=nc>B</span><span class=p>)</span><span class=w> </span>-&gt; <span class=p>(</span><span class=no>RA</span><span class=p>,</span><span class=w> </span><span class=no>RB</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>A</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>RA</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>B</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>RB</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=no>RA</span>: <span class=nb>Send</span> <span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=no>RB</span>: <span class=nb>Send</span> <span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>result_a</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>None</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>code_a</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Code</span>::<span class=n>new</span><span class=p>(</span><span class=n>oper_a</span><span class=p>,</span><span class=w> </span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>result_a</span><span class=w> </span><span class=k>as</span><span class=w> </span><span class=o>*</span><span class=k>mut</span><span class=w> </span><span class=nb>Option</span><span class=o>&lt;</span><span class=no>RA</span><span class=o>&gt;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>latch_a</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Latch</span>::<span class=n>new</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>job_a</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Job</span>::<span class=n>new</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>new</span><span class=p>(</span><span class=n>code_a</span><span class=p>),</span><span class=w> </span><span class=n>latch_a</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>result_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>None</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>code_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Code</span>::<span class=n>new</span><span class=p>(</span><span class=n>oper_b</span><span class=p>,</span><span class=w> </span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>result_b</span><span class=w> </span><span class=k>as</span><span class=w> </span><span class=o>*</span><span class=k>mut</span><span class=w> </span><span class=nb>Option</span><span class=o>&lt;</span><span class=no>RB</span><span class=o>&gt;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>latch_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Latch</span>::<span class=n>new</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>job_b</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Job</span>::<span class=n>new</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>new</span><span class=p>(</span><span class=n>code_b</span><span class=p>),</span><span class=w> </span><span class=n>latch_b</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>get_registry</span><span class=p>().</span><span class=n>inject</span><span class=p>(</span><span class=fm>vec!</span><span class=p>[</span><span class=n>job_a</span><span class=p>,</span><span class=w> </span><span class=n>job_b</span><span class=p>]);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>latch_a</span><span class=p>.</span><span class=n>wait</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>latch_b</span><span class=p>.</span><span class=n>wait</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>(</span><span class=n>result_a</span><span class=p>.</span><span class=n>unwrap</span><span class=p>(),</span><span class=w> </span><span class=n>result_b</span><span class=p>.</span><span class=n>unwrap</span><span class=p>())</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>join 函数接受两个满足 FnOnce() -> R + Send + &lsquo;static trait bound 的闭包作为参数，需要满足 Send trait 的原因在于闭包与返回值都需要在工作线程之间传递，并由某一个工作线程执行其逻辑，&lsquo;static 约束了闭包与返回值的生命周期，因为在编译的过程中，无法明确地知道闭包和返回值和会何时使用，所以出于简化的目的，避免引入声明生命周期过多的复杂性，直接声明闭包与返回值需要满足 &lsquo;static 生命周期。</p><blockquote><p>事实上，&lsquo;static 生命周期并不意味着一定需要程序运行过程中全局可用，&lsquo;static 实际上是希望告诉编译器，开发者可以保证这个生命周期是能够满足的。在 mini-rayon 的场景中，编译器并不能自己判断出这一点，其本质原因在于 mini-rayon 是一个运行时框架，任务的执行是动态的，其生命周期是隐含的保证。</p></blockquote><p>在 join 函数中，我们会首先判断执行 join 函数的线程是否是工作线程，如果调用 join 函数是 mini-rayon 的使用线程，而非工作线程，则会通过 join_inject 函数将两个任务包装后插入到 Registry 中，get_registry 函数会获取 mini-rayon 的全局 Registry。执行 join 函数的工作线程，会首先执行第一个任务，并将第二个任务插入到工作队列中，在执行第一个任务的过程中，如果第二个任务被其他工作线程窃取，则会触发并行加速，如果其他工作线程都处于忙碌状态，无人窃取任务，那么 join 函数就会退化至顺序执行两个任务，从而实现了潜在并行性的语义。</p><h4 id=452-thread-pool><a href=#452-thread-pool>#</a>
+4.5.2 thread pool</h4><p>在上述 join 原语接口的设计中， 由于全局 Registry 存在冷启动的情况，所以 mini-rayon 通过 ThreadPool 数据结构封装了单独的 Registry，这一设计可以实现对 Registry 细粒度的控制，通过 install 接口提交任务。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>pub</span><span class=w> </span><span class=k>struct</span> <span class=nc>ThreadPool</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>registry</span>: <span class=nc>Arc</span><span class=o>&lt;</span><span class=n>Registry</span><span class=o>&gt;</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=n>ThreadPool</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>new</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>ThreadPool</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>registry</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Registry</span>::<span class=n>new</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>registry</span><span class=p>.</span><span class=n>wait_until_primed</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>ThreadPool</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>registry</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>pub</span><span class=w> </span><span class=k>fn</span> <span class=nf>install</span><span class=o>&lt;</span><span class=no>OP</span><span class=p>,</span><span class=w> </span><span class=n>R</span><span class=o>&gt;</span><span class=p>(</span><span class=o>&amp;</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>op</span>: <span class=nc>OP</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nc>R</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=no>OP</span>: <span class=nb>FnOnce</span><span class=p>()</span><span class=w> </span>-&gt; <span class=nc>R</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>R</span>: <span class=nb>Send</span> <span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=p>,</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>result</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=nb>None</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>code</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Code</span>::<span class=n>new</span><span class=p>(</span><span class=n>op</span><span class=p>,</span><span class=w> </span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=n>result</span><span class=w> </span><span class=k>as</span><span class=w> </span><span class=o>*</span><span class=k>mut</span><span class=w> </span><span class=nb>Option</span><span class=o>&lt;</span><span class=n>R</span><span class=o>&gt;</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>latch</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Arc</span>::<span class=n>new</span><span class=p>(</span><span class=n>Latch</span>::<span class=n>new</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>job</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>Job</span>::<span class=n>new</span><span class=p>(</span><span class=nb>Box</span>::<span class=n>new</span><span class=p>(</span><span class=n>code</span><span class=p>),</span><span class=w> </span><span class=n>latch</span><span class=p>.</span><span class=n>clone</span><span class=p>());</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>registry</span><span class=p>.</span><span class=n>inject</span><span class=p>(</span><span class=fm>vec!</span><span class=p>[</span><span class=n>job</span><span class=p>]);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>latch</span><span class=p>.</span><span class=n>wait</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>result</span><span class=p>.</span><span class=n>unwrap</span><span class=p>()</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>impl</span><span class=w> </span><span class=nb>Drop</span><span class=w> </span><span class=k>for</span><span class=w> </span><span class=n>ThreadPool</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>drop</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=bp>self</span><span class=p>.</span><span class=n>registry</span><span class=p>.</span><span class=n>terminate</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><h3 id=46-rust-feature-带来的优势><a href=#46-rust-feature-%e5%b8%a6%e6%9d%a5%e7%9a%84%e4%bc%98%e5%8a%bf>#</a>
+4.6 Rust feature 带来的优势</h3><p>Rust 作为一种系统级编程语言，提供了强大的抽象能力，在编译时将这些抽象转换为高效的机器码，通过零成本抽象避免运行时开销的引入。Rust feature 为 mini-rayon 带来了一些天然的优势，下面会展开介绍如何通过 Rust feature 实现最小化任务推送开销以及避免并行编程中常见的数据竞争错误。</p><h4 id=461-最小化任务推送开销><a href=#461-%e6%9c%80%e5%b0%8f%e5%8c%96%e4%bb%bb%e5%8a%a1%e6%8e%a8%e9%80%81%e5%bc%80%e9%94%80>#</a>
+4.6.1 最小化任务推送开销</h4><p>在之前提到的任务调度过程中，为了充分发挥 join 原语带来的性能提升，避免并行抽象带来的额外成本，减少任务推送开销无疑是非常重要的。这里有两个主要原因，首先每次调用 join 都需要将其中的一个任务推送到本地队列，其次事实上处理器的数量很可能远远少于任务的数量，在这种情况下，大多数任务将不会被窃取，任务推送开销在此时变成了主要的并行抽象成本。</p><p>为了减少任务推送开销，mini-rayon 利用了诸多 Rust feature：</p><ul><li>join 原语时根据其参数的闭包类型进行通用定义的，这意味着 Rust 的单态化会在每个 join 原语的调用处生成不同的 join 原语实现副本。当 join 调用 oper_a() 和 oper_b() 时（在不被窃取的情况下），这些调用是静态分配的，它们可以进行内联，而无需分配空间创建闭包。</li><li>因为 join 原语会阻塞直至两个闭包完成，在这个过程中可以充分利用栈中的分配，完全避免堆的分配（例如，我们放入本地工作队列的闭包对象是在栈上分配的）。</li></ul><p>通过上述方式，Rust 实现的推送任务开销实际上已经足够低，此外，还有一些方法可以进一步降低：</p><ul><li>许多工作窃取实现使用启发式方法来尝试决定何时跳过推送并行任务的工作。例如，一些策略尝试完全避免推送任务，除非存在可能窃取任务的空闲工作线程。</li><li>通过一些经典的方式进一步优化 join 原语所生成的汇编代码。</li></ul><h4 id=462-避免数据竞争><a href=#462-%e9%81%bf%e5%85%8d%e6%95%b0%e6%8d%ae%e7%ab%9e%e4%ba%89>#</a>
+4.6.2 避免数据竞争</h4><p>mini-rayon 通过 Rust feature 可以使得在向顺序代码添加并行性时，轻松地避免数据竞争，从而防止引入一些难以解释的并发错误。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>quick_sort</span><span class=o>&lt;</span><span class=n>T</span>:<span class=nb>PartialOrd</span><span class=o>+</span><span class=nb>Send</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&gt;</span><span class=w> </span><span class=mi>1</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>mini_rayon</span>::<span class=n>join</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>lo</span><span class=p>),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                         </span><span class=o>||</span><span class=w> </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>lo</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>首先，join 原语的两个闭包可能共享一些可变状态，因此其中一个闭包所做的更改可能会影响另一个闭包。例如在之前的快排实现实例中错误地调用 lo 上的 quick_sort 时，这将无法通过 Rust 的编译。Rust 使得这类错误成为编译错误，而不是难以解决的崩溃错误。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>share_rc</span><span class=o>&lt;</span><span class=n>T</span>:<span class=nb>PartialOrd</span><span class=o>+</span><span class=nb>Send</span><span class=o>&gt;</span><span class=p>(</span><span class=n>rc</span>: <span class=nc>Rc</span><span class=o>&lt;</span><span class=kt>i32</span><span class=o>&gt;</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>mini_rayon</span>::<span class=n>join</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>something</span><span class=p>(</span><span class=n>rc</span><span class=p>.</span><span class=n>clone</span><span class=p>()),</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>                     </span><span class=o>||</span><span class=w> </span><span class=n>something</span><span class=p>(</span><span class=n>rc</span><span class=p>.</span><span class=n>clone</span><span class=p>()));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>其次，另一个常见的错误是在闭包中使用非线程安全的数据类型。例如在上面的例子中使用了在线程之间共享不安全的 Rc 数据类型。这同样无法通过 Rust 的编译，这是由于 join 原语将闭包声明为 Send。Send 指示数据是否可以安全地跨线程传输。join 原语将两个闭包声明为 Send，实际上是在指示编译器在这些闭包中访问的数据必须能够安全地在线程中相互传输。</p><p>换言之，Rust 自身的所有权、借用、多线程机制避免了数据竞争，而 mini-rayon 框架得益于这些 Rust feature，同样使得在修改顺序代码时避免引入过多的心智负担。</p><h2 id=五构建在-join-之上的并行迭代器><a href=#%e4%ba%94%e6%9e%84%e5%bb%ba%e5%9c%a8-join-%e4%b9%8b%e4%b8%8a%e7%9a%84%e5%b9%b6%e8%a1%8c%e8%bf%ad%e4%bb%a3%e5%99%a8>#</a>
+五、构建在 join 之上的并行迭代器</h2><p>上一章节详细介绍了 mini-rayon 中的 join 原语实现细节，mini-rayon 所提供的并行迭代器实际上就是构建在 join 原语之上的包装。因为 join 原语封装了所有的不安全性，并行迭代器不需要处理任何与并行性相关的 unsafe 代码。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>pub</span><span class=w> </span><span class=k>trait</span><span class=w> </span><span class=n>ParallelIterator</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Item</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Shared</span>: <span class=nb>Sync</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>State</span>: <span class=nc>ParallelIteratorState</span><span class=o>&lt;</span><span class=n>Shared</span><span class=o>=</span><span class=bp>Self</span>::<span class=n>Shared</span><span class=p>,</span><span class=w> </span><span class=n>Item</span><span class=o>=</span><span class=bp>Self</span>::<span class=n>Item</span><span class=o>&gt;</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>	
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>state</span><span class=p>(</span><span class=bp>self</span><span class=p>)</span><span class=w> </span>-&gt; <span class=p>(</span><span class=bp>Self</span>::<span class=n>Shared</span><span class=p>,</span><span class=w> </span><span class=bp>Self</span>::<span class=n>State</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>上述代码是并行迭代器 trait ParallelIterator 的核心部分。state 方法将迭代器划分为一些共享状态和一些单一线程的状态。共享状态可能会被所有工作线程访问，因此它必须是 Sync 的，需要跨线程共享。单一线程的状态只需要是 Send 的，支持传输到其他线程。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>pub</span><span class=w> </span><span class=k>trait</span><span class=w> </span><span class=n>ParallelIteratorState</span>: <span class=nb>Sized</span> <span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Item</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>type</span> <span class=nc>Shared</span>: <span class=nb>Sync</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>len</span><span class=p>(</span><span class=o>&amp;</span><span class=k>mut</span><span class=w> </span><span class=bp>self</span><span class=p>)</span><span class=w> </span>-&gt; <span class=nc>ParallelLen</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>split_at</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>index</span>: <span class=kt>usize</span><span class=p>)</span><span class=w> </span>-&gt; <span class=p>(</span><span class=bp>Self</span><span class=p>,</span><span class=w> </span><span class=bp>Self</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>fn</span> <span class=nf>for_each</span><span class=o>&lt;</span><span class=no>OP</span><span class=o>&gt;</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span><span class=w> </span><span class=n>shared</span>: <span class=kp>&amp;</span><span class=nc>Self</span>::<span class=n>Shared</span><span class=p>,</span><span class=w> </span><span class=n>op</span>: <span class=nc>OP</span><span class=p>)</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>where</span><span class=w> </span><span class=no>OP</span>: <span class=nb>FnMut</span><span class=p>(</span><span class=bp>Self</span>::<span class=n>Item</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>ParallelteratorState trait 表示剩余工作的一部分，例如要处理的子数据切片。他包含了三个方法：len 方法给出了剩余工作量的概念；split_at 方法将这个状态分为分为另外两个部分；for_each 方法生成该迭代器中的所有值。因此对于一个 slice &[T] 所对应的并行迭代器，len 方法返回 slice 的长度，split_at 方法将 slice 分为两个子 slice，for_each 方法迭代数组并对每个元素调用 op。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>process</span><span class=p>(</span><span class=n>shared</span><span class=p>,</span><span class=w> </span><span class=n>state</span><span class=p>)</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>state</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=n>is</span><span class=w> </span><span class=n>too</span><span class=w> </span><span class=n>big</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=n>midpoint</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>state</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>/</span><span class=w> </span><span class=mi>2</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>state1</span><span class=p>,</span><span class=w> </span><span class=n>state2</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>state</span><span class=p>.</span><span class=n>split_at</span><span class=p>(</span><span class=n>midpoint</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>rayon</span>::<span class=n>join</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>process</span><span class=p>(</span><span class=n>shared</span><span class=p>,</span><span class=w> </span><span class=n>state1</span><span class=p>),</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=n>process</span><span class=p>(</span><span class=n>shared</span><span class=p>,</span><span class=w> </span><span class=n>state2</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w> </span><span class=k>else</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>state</span><span class=p>.</span><span class=n>for_each</span><span class=p>(</span><span class=o>|</span><span class=n>item</span><span class=o>|</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=c1>// process item
+</span></span></span><span class=line><span class=cl><span class=c1></span><span class=w>        </span><span class=p>})</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>通过 ParallelIterator trait 和 ParallelteratorState trait，我们可以遵循相同的模版来实现一些并行操作。例如上面的这个 process 伪代码函数，首先检查有多少工作，如果太多，就分为两部分，否则，就按顺序处理。</p><h2 id=六框架性能测试><a href=#%e5%85%ad%e6%a1%86%e6%9e%b6%e6%80%a7%e8%83%bd%e6%b5%8b%e8%af%95>#</a>
+六、框架性能测试</h2><p>我们在之前实现的基础上对 mini-rayon 进行性能测试，测试对象包括顺序计算的快速排序、通过 spawn 新线程实现的并行快速排序、通过 threadpool crate 使用线程池的并行快速排序和通过 mini-rayon 实现的并行快速排序，根据不同方式实现的快速排序如下面的代码所示。性能测试主机配置为 20 CPU 核心 32G 内存。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span><span class=lnt>47
+</span><span class=lnt>48
+</span><span class=lnt>49
+</span><span class=lnt>50
+</span><span class=lnt>51
+</span><span class=lnt>52
+</span><span class=lnt>53
+</span><span class=lnt>54
+</span><span class=lnt>55
+</span><span class=lnt>56
+</span><span class=lnt>57
+</span><span class=lnt>58
+</span><span class=lnt>59
+</span><span class=lnt>60
+</span><span class=lnt>61
+</span><span class=lnt>62
+</span><span class=lnt>63
+</span><span class=lnt>64
+</span><span class=lnt>65
+</span><span class=lnt>66
+</span><span class=lnt>67
+</span><span class=lnt>68
+</span><span class=lnt>69
+</span><span class=lnt>70
+</span><span class=lnt>71
+</span><span class=lnt>72
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Rust data-lang=Rust><span class=line><span class=cl><span class=k>fn</span> <span class=nf>partition</span><span class=o>&lt;</span><span class=n>T</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w> </span>-&gt; <span class=kt>usize</span>
+</span></span><span class=line><span class=cl><span class=nc>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>T</span>: <span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>pivot</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>-</span><span class=w> </span><span class=mi>1</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=k>mut</span><span class=w> </span><span class=n>i</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=mi>0</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>for</span><span class=w> </span><span class=n>j</span><span class=w> </span><span class=k>in</span><span class=w> </span><span class=mi>0</span><span class=o>..</span><span class=n>pivot</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>[</span><span class=n>j</span><span class=p>]</span><span class=w> </span><span class=o>&lt;=</span><span class=w> </span><span class=n>v</span><span class=p>[</span><span class=n>pivot</span><span class=p>]</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>v</span><span class=p>.</span><span class=n>swap</span><span class=p>(</span><span class=n>i</span><span class=p>,</span><span class=w> </span><span class=n>j</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>            </span><span class=n>i</span><span class=w> </span><span class=o>+=</span><span class=w> </span><span class=mi>1</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>v</span><span class=p>.</span><span class=n>swap</span><span class=p>(</span><span class=n>i</span><span class=p>,</span><span class=w> </span><span class=n>pivot</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>i</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>quick_sort</span><span class=o>&lt;</span><span class=n>T</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>T</span>: <span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&lt;=</span><span class=w> </span><span class=mi>1</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>return</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>lo</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>hi</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>quick_sort_parallel_by_spawn</span><span class=o>&lt;</span><span class=n>T</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nb>&#39;static</span> <span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>T</span>: <span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&lt;=</span><span class=w> </span><span class=mi>200</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>return</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>lo_handle</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>thread</span>::<span class=n>spawn</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_spawn</span><span class=p>(</span><span class=n>lo</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>hi_handle</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>thread</span>::<span class=n>spawn</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_spawn</span><span class=p>(</span><span class=n>hi</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>lo_handle</span><span class=p>.</span><span class=n>join</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>hi_handle</span><span class=p>.</span><span class=n>join</span><span class=p>().</span><span class=n>unwrap</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>quick_sort_parallel_by_threadpool</span><span class=o>&lt;</span><span class=n>T</span><span class=o>&gt;</span><span class=p>(</span><span class=n>pool</span>: <span class=kp>&amp;</span><span class=nc>ThreadPool</span><span class=p>,</span><span class=w> </span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nb>&#39;static</span> <span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>T</span>: <span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&lt;=</span><span class=w> </span><span class=mi>200</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>return</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>pool</span><span class=p>.</span><span class=n>execute</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_spawn</span><span class=p>(</span><span class=n>lo</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>pool</span><span class=p>.</span><span class=n>execute</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_spawn</span><span class=p>(</span><span class=n>hi</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>pool</span><span class=p>.</span><span class=n>join</span><span class=p>();</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>fn</span> <span class=nf>quick_sort_parallel_by_mini_rayon</span><span class=o>&lt;</span><span class=n>T</span><span class=o>&gt;</span><span class=p>(</span><span class=n>v</span>: <span class=kp>&amp;</span><span class=nb>&#39;static</span> <span class=nc>mut</span><span class=w> </span><span class=p>[</span><span class=n>T</span><span class=p>])</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=k>where</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>T</span>: <span class=nb>PartialOrd</span> <span class=o>+</span><span class=w> </span><span class=nb>Send</span><span class=w> </span><span class=o>+</span><span class=w> </span><span class=nb>&#39;static</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=k>if</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>len</span><span class=p>()</span><span class=w> </span><span class=o>&lt;=</span><span class=w> </span><span class=mi>200</span><span class=w> </span><span class=p>{</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=n>quick_sort</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>        </span><span class=k>return</span><span class=p>;</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=p>}</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=n>mid</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>partition</span><span class=p>(</span><span class=n>v</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=kd>let</span><span class=w> </span><span class=p>(</span><span class=n>lo</span><span class=p>,</span><span class=w> </span><span class=n>hi</span><span class=p>)</span><span class=w> </span><span class=o>=</span><span class=w> </span><span class=n>v</span><span class=p>.</span><span class=n>split_at_mut</span><span class=p>(</span><span class=n>mid</span><span class=p>);</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w>    </span><span class=n>join</span><span class=p>(</span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_mini_rayon</span><span class=p>(</span><span class=n>lo</span><span class=p>),</span><span class=w> </span><span class=o>||</span><span class=w> </span><span class=n>quick_sort_parallel_by_mini_rayon</span><span class=p>(</span><span class=n>hi</span><span class=p>));</span><span class=w>
+</span></span></span><span class=line><span class=cl><span class=w></span><span class=p>}</span><span class=w>
+</span></span></span></code></pre></td></tr></table></div></div><p>测试结果如下图所示，测试中我们分别使用了 10^6 和 10^8 两种数量级大小的随机数组进行排序测试。在两种数量级情况下，mini-rayon 都取得了最好的结果，且相比于顺序计算可以获得 5-7 倍的性能提升，这一性能提升无疑是非常显著的。此外，无论是在直接创建新线程或使用线程池的情况下并行化快速排序均性能表现不佳，在这里猜测主要原因在于直接创建新线程的情况下，由于任务粒度不大，频繁创建和销毁新线程严重影响了性能表现，即使是使用线程池，由于缺乏任务窃取机制，线程在使用的过程中同步成本过大，线程的利用率不高，即使完成了任务也需要在等待其他线程完成任务的过程中处于无法复用的状态，从而导致了相比于直接创建新线程仅能获得一点性能提升。</p><p><img src=/blog/p/mini-rayon/1.png width=1792 height=486 srcset="/blog/p/mini-rayon/1_hu93b8bd797d1ff3a7bb7965fb2ee2df11_75507_480x0_resize_box_3.png 480w, /blog/p/mini-rayon/1_hu93b8bd797d1ff3a7bb7965fb2ee2df11_75507_1024x0_resize_box_3.png 1024w" loading=lazy class=gallery-image data-flex-grow=368 data-flex-basis=884px></p><blockquote><p>在通过 threadpool crate 使用线程池的并行快速排序实现中，我们使用了 pool.join 函数，该函数实际上需要完成整个线程池的同步，而快速排序只需完成函数内两个闭包的同步即可返回，这一点是性能表现不佳的另一个原因。事实上，为了解决这个问题，我们无法通过 threadpool crate 提供的接口同步两个闭包，即使使用 channel 进行同步的情况下，由于引入了新的 channel 开销，根据实际测试表明在这个场景下性能表现也不会有明显的性能提升。另外，另一个常见的 crossbeam crate 提供了 scope 函数，支持创建作用域，在作用域内启动并行任务，并等待作用域内任务完成即可返回，但此函数仍会创建新的线程，难以有显著的性能提升。因此，即使是一个快速排序简单的测试场景，实际上已经可以证明 mini-rayon 和 Rayon 在数据并行计算加速中存在的价值。此外，测试中均保证了排序结果的有效性，测试代码位于 <a class=link href=https://github.com/zjregee/mini/blob/main/mini-rayon/examples/quick_sort.rs target=_blank rel=noopener>https://github.com/zjregee/mini/blob/main/mini-rayon/examples/quick_sort.rs</a></p></blockquote><h2 id=参考资料><a href=#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99>#</a>
+参考资料</h2><ul><li><a class=link href=https://smallcultfollowing.com/babysteps/blog/2015/12/18/rayon-data-parallelism-in-rust/ target=_blank rel=noopener>https://smallcultfollowing.com/babysteps/blog/2015/12/18/rayon-data-parallelism-in-rust/</a></li><li><a class=link href=https://github.com/nikomatsakis/rayon/ target=_blank rel=noopener>https://github.com/nikomatsakis/rayon/</a></li><li><a class=link href=https://github.com/rayon-rs/rayon target=_blank rel=noopener>https://github.com/rayon-rs/rayon</a></li></ul></section><footer class=article-footer><section class=article-tags><a href=/blog/tags/rust/>Rust</a></section><section class=article-copyright><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copyright" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><path d="M14.5 9a3.5 4 0 100 6"/></svg>
+<span>Licensed under CC BY-NC-SA 4.0</span></section><section class=article-lastmod><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-clock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+<span>Last updated on Sep 28, 2023 00:00 UTC</span></section></footer></article><aside class=related-content--wrapper><h2 class=section-title>Related content</h2><div class=related-content><div class="flex article-list--tile"><article><a href=/blog/p/mini-monoio/><div class=article-details><h2 class=article-title>基于 thread-per-core 模型的 Rust 异步运行时 mini-monoio 实现示例</h2></div></a></article><article><a href=/blog/p/mini-tokio/><div class=article-details><h2 class=article-title>Rust 异步运行时实现示例</h2></div></a></article><article><a href=/blog/p/mini-bitcask/><div class=article-details><h2 class=article-title>基于 bitcask 存储模型的 mini kv 数据库实现</h2></div></a></article><article><a href=/blog/p/mini-paxos/><div class=article-details><h2 class=article-title>分布式共识算法之 Paxos 算法模拟</h2></div></a></article><article><a href=/blog/p/mini-dns/><div class=article-details><h2 class=article-title>mini-dns 一个最小化 DNS 客户端实现</h2></div></a></article></div></div></aside><footer class=site-footer><section class=copyright>&copy;
+2020 -
+2024 zjregee</section><section class=powerby>Built with <a href=https://gohugo.io/ target=_blank rel=noopener>Hugo</a><br>Theme <b><a href=https://github.com/CaiJimmy/hugo-theme-stack target=_blank rel=noopener data-version=3.25.0>Stack</a></b> designed by <a href=https://jimmycai.com target=_blank rel=noopener>Jimmy</a></section></footer><div class=pswp tabindex=-1 role=dialog aria-hidden=true><div class=pswp__bg></div><div class=pswp__scroll-wrap><div class=pswp__container><div class=pswp__item></div><div class=pswp__item></div><div class=pswp__item></div></div><div class="pswp__ui pswp__ui--hidden"><div class=pswp__top-bar><div class=pswp__counter></div><button class="pswp__button pswp__button--close" title="Close (Esc)"></button>
+<button class="pswp__button pswp__button--share" title=Share></button>
+<button class="pswp__button pswp__button--fs" title="Toggle fullscreen"></button>
+<button class="pswp__button pswp__button--zoom" title="Zoom in/out"></button><div class=pswp__preloader><div class=pswp__preloader__icn><div class=pswp__preloader__cut><div class=pswp__preloader__donut></div></div></div></div></div><div class="pswp__share-modal pswp__share-modal--hidden pswp__single-tap"><div class=pswp__share-tooltip></div></div><button class="pswp__button pswp__button--arrow--left" title="Previous (arrow left)">
+</button>
+<button class="pswp__button pswp__button--arrow--right" title="Next (arrow right)"></button><div class=pswp__caption><div class=pswp__caption__center></div></div></div></div></div><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.js integrity="sha256-ePwmChbbvXbsO02lbM3HoHbSHTHFAeChekF1xKJdleo=" crossorigin=anonymous defer></script><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe-ui-default.min.js integrity="sha256-UKkzOn/w1mBxRmLLGrSeyB4e1xbrp4xylgAWb3M42pU=" crossorigin=anonymous defer></script><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/default-skin/default-skin.min.css crossorigin=anonymous><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.css crossorigin=anonymous></main></div><script src=https://cdn.jsdelivr.net/npm/node-vibrant@3.1.6/dist/vibrant.min.js integrity="sha256-awcR2jno4kI5X0zL8ex0vi2z+KMkF24hUW8WePSA9HM=" crossorigin=anonymous></script><script type=text/javascript src=/blog/ts/main.js defer></script><script>(function(){const e=document.createElement("link");e.href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap",e.type="text/css",e.rel="stylesheet",document.head.appendChild(e)})()</script></body></html>

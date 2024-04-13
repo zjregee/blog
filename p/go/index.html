@@ -1,0 +1,1194 @@
+<!doctype html><html lang=en-us dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content="该笔记基于 Golang 1.21.6。 源码地址：https://github.com/golang/go # 一、context context 包提供了在 Goroutines 之间传递取消信号、超时和截止时间的一种方式，以及存储和检索请求处理相关数据的机制，是 Golang 中用于处理请求范围内数据和控制请求生命周期的重要工具。Context 接口定义了基本的上下文操作：Deadline 方法返回一个上下文被取消的时间，即完成工作的截止时间；Done 方法返回一个 Channel。这个 Channel 会在当前工作完成或上下文被取消后关闭，多次调用 Done 方法会返回同一个 Channel；Err 方法返回上下文结束的原因，它只会在 Done 方法对应的 Channel 关闭时返回非空值，如果上下文被取消返回 Canceled 错误，如果上下文超时返回 DeadlineExceeded 错误；Value 方法从上下文中获取键对应的值，对于同一个上下文来说，多次调用 Value 方法并传入相同的键会返回相同的结果，该方法可以用来传递特定的数据。 1 2 3 4 5 6 7 8 package context type Context interface { Deadline() (deadline time.Time, ok bool) Done() <-chan struct{} Err() error Value(key any) any } context 包的最大用处在于在 Goroutines 构成的树形结构中同步信号以减少计算资源的浪费。上下文可以从最顶层的 Goroutines 逐层传递到最底层，以便在上层的 Goroutines 执行出现错误时将信号即时同步给下层。一个常见的使用场景是多个 Goroutines 同时订阅上下文 Done 方法 Channel 中的消息，一旦接受到取消信号就立刻停止当前正在执行的工作。"><title>Golang 源码阅读笔记</title>
+<link rel=canonical href=https://zjregee.github.io/blog/p/go/><link rel=stylesheet href=/blog/scss/style.min.8e60baf4cd3fc55968717a6e39762f4d28ed7ef6007566b6c7970ad0fe907198.css><meta property='og:title' content="Golang 源码阅读笔记"><meta property='og:description' content="该笔记基于 Golang 1.21.6。 源码地址：https://github.com/golang/go # 一、context context 包提供了在 Goroutines 之间传递取消信号、超时和截止时间的一种方式，以及存储和检索请求处理相关数据的机制，是 Golang 中用于处理请求范围内数据和控制请求生命周期的重要工具。Context 接口定义了基本的上下文操作：Deadline 方法返回一个上下文被取消的时间，即完成工作的截止时间；Done 方法返回一个 Channel。这个 Channel 会在当前工作完成或上下文被取消后关闭，多次调用 Done 方法会返回同一个 Channel；Err 方法返回上下文结束的原因，它只会在 Done 方法对应的 Channel 关闭时返回非空值，如果上下文被取消返回 Canceled 错误，如果上下文超时返回 DeadlineExceeded 错误；Value 方法从上下文中获取键对应的值，对于同一个上下文来说，多次调用 Value 方法并传入相同的键会返回相同的结果，该方法可以用来传递特定的数据。 1 2 3 4 5 6 7 8 package context type Context interface { Deadline() (deadline time.Time, ok bool) Done() <-chan struct{} Err() error Value(key any) any } context 包的最大用处在于在 Goroutines 构成的树形结构中同步信号以减少计算资源的浪费。上下文可以从最顶层的 Goroutines 逐层传递到最底层，以便在上层的 Goroutines 执行出现错误时将信号即时同步给下层。一个常见的使用场景是多个 Goroutines 同时订阅上下文 Done 方法 Channel 中的消息，一旦接受到取消信号就立刻停止当前正在执行的工作。"><meta property='og:url' content='https://zjregee.github.io/blog/p/go/'><meta property='og:site_name' content='zjregee'><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Go'><meta property='article:published_time' content='2023-11-26T00:00:00+00:00'><meta property='article:modified_time' content='2023-11-26T00:00:00+00:00'><meta name=twitter:title content="Golang 源码阅读笔记"><meta name=twitter:description content="该笔记基于 Golang 1.21.6。 源码地址：https://github.com/golang/go # 一、context context 包提供了在 Goroutines 之间传递取消信号、超时和截止时间的一种方式，以及存储和检索请求处理相关数据的机制，是 Golang 中用于处理请求范围内数据和控制请求生命周期的重要工具。Context 接口定义了基本的上下文操作：Deadline 方法返回一个上下文被取消的时间，即完成工作的截止时间；Done 方法返回一个 Channel。这个 Channel 会在当前工作完成或上下文被取消后关闭，多次调用 Done 方法会返回同一个 Channel；Err 方法返回上下文结束的原因，它只会在 Done 方法对应的 Channel 关闭时返回非空值，如果上下文被取消返回 Canceled 错误，如果上下文超时返回 DeadlineExceeded 错误；Value 方法从上下文中获取键对应的值，对于同一个上下文来说，多次调用 Value 方法并传入相同的键会返回相同的结果，该方法可以用来传递特定的数据。 1 2 3 4 5 6 7 8 package context type Context interface { Deadline() (deadline time.Time, ok bool) Done() <-chan struct{} Err() error Value(key any) any } context 包的最大用处在于在 Goroutines 构成的树形结构中同步信号以减少计算资源的浪费。上下文可以从最顶层的 Goroutines 逐层传递到最底层，以便在上层的 Goroutines 执行出现错误时将信号即时同步给下层。一个常见的使用场景是多个 Goroutines 同时订阅上下文 Done 方法 Channel 中的消息，一旦接受到取消信号就立刻停止当前正在执行的工作。"><link rel="shortcut icon" href=/favicon.png></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label="Toggle Menu">
+<span class=hamburger-box><span class=hamburger-inner></span></span></button><header><figure class=site-avatar><a href=/blog/><img src=/blog/img/avatar_huf8b2b345a9bb285ed8c532b05217afba_16572_300x0_resize_q75_box.jpg width=300 height=300 class=site-logo loading=lazy alt=Avatar>
+</a><span class=emoji>👻</span></figure><div class=site-meta><h1 class=site-name><a href=/blog>zjregee</a></h1><h2 class=site-description>Enjoy The Moment.</h2></div></header><ol class=menu id=main-menu><li><a href=/blog/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-home" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><polyline points="5 12 3 12 12 3 21 12 19 12"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6"/></svg>
+<span>Home</span></a></li><li><a href=/blog/search/><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-search" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="10" cy="10" r="7"/><line x1="21" y1="21" x2="15" y2="15"/></svg>
+<span>Search</span></a></li><li class=menu-bottom-section><ol class=menu><li id=dark-mode-toggle><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-left" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="8" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-toggle-right" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+<span>Dark Mode</span></li></ol></li></ol></aside><aside class="sidebar right-sidebar sticky"><section class="widget archives"><div class=widget-icon><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-hash" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="11" y1="4" x2="7" y2="20"/><line x1="17" y1="4" x2="13" y2="20"/></svg></div><h2 class="widget-title section-title">Table of contents</h2><div class=widget--toc><nav id=TableOfContents><ul><li><a href=#一context>一、context</a><ul><li><a href=#11-默认上下文与私有结构体>1.1 默认上下文与私有结构体</a></li><li><a href=#12-派生上下文之传值>1.2 派生上下文之传值</a></li><li><a href=#13-派生上下文之取消>1.3 派生上下文之取消</a></li><li><a href=#14-派生上下文之超时>1.4 派生上下文之超时</a></li></ul></li><li><a href=#二errors>二、errors</a><ul><li><a href=#21-基本定义>2.1 基本定义</a></li><li><a href=#22-错误链>2.2 错误链</a></li><li><a href=#23-错误合并>2.3 错误合并</a></li></ul></li><li><a href=#三bufio>三、bufio</a><ul><li><a href=#31-reader>3.1 Reader</a></li><li><a href=#32-writer>3.2 Writer</a></li><li><a href=#33-readwriter>3.3 ReadWriter</a></li><li><a href=#34-scanner>3.4 Scanner</a></li></ul></li></ul></nav></div></section></aside><main class="main full-width"><article class=main-article><header class=article-header><div class=article-details><header class=article-category><a href=/blog/categories/%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0%E7%B3%BB%E5%88%97/>学习笔记系列</a></header><div class=article-title-wrapper><h2 class=article-title><a href=/blog/p/go/>Golang 源码阅读笔记</a></h2></div><footer class=article-time><div><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-calendar-time" width="56" height="56" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><path d="M11.795 21H5a2 2 0 01-2-2V7a2 2 0 012-2h12a2 2 0 012 2v4"/><circle cx="18" cy="18" r="4"/><path d="M15 3v4"/><path d="M7 3v4"/><path d="M3 11h16"/><path d="M18 16.496V18l1 1"/></svg>
+<time class=article-time--published>Nov 26, 2023</time></div></footer></div></header><section class=article-content><blockquote><p>该笔记基于 Golang 1.21.6。</p><p>源码地址：https://github.com/golang/go</p></blockquote><h2 id=一context><a href=#%e4%b8%80context>#</a>
+一、context</h2><p>context 包提供了在 Goroutines 之间传递取消信号、超时和截止时间的一种方式，以及存储和检索请求处理相关数据的机制，是 Golang 中用于处理请求范围内数据和控制请求生命周期的重要工具。Context 接口定义了基本的上下文操作：Deadline 方法返回一个上下文被取消的时间，即完成工作的截止时间；Done 方法返回一个 Channel。这个 Channel 会在当前工作完成或上下文被取消后关闭，多次调用 Done 方法会返回同一个 Channel；Err 方法返回上下文结束的原因，它只会在 Done 方法对应的 Channel 关闭时返回非空值，如果上下文被取消返回 Canceled 错误，如果上下文超时返回 DeadlineExceeded 错误；Value 方法从上下文中获取键对应的值，对于同一个上下文来说，多次调用 Value 方法并传入相同的键会返回相同的结果，该方法可以用来传递特定的数据。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Context</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Deadline</span><span class=p>()</span> <span class=p>(</span><span class=nx>deadline</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>ok</span> <span class=kt>bool</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Done</span><span class=p>()</span> <span class=o>&lt;-</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Err</span><span class=p>()</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Value</span><span class=p>(</span><span class=nx>key</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>any</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>context 包的最大用处在于在 Goroutines 构成的树形结构中同步信号以减少计算资源的浪费。上下文可以从最顶层的 Goroutines 逐层传递到最底层，以便在上层的 Goroutines 执行出现错误时将信号即时同步给下层。一个常见的使用场景是多个 Goroutines 同时订阅上下文 Done 方法 Channel 中的消息，一旦接受到取消信号就立刻停止当前正在执行的工作。</p><h3 id=11-默认上下文与私有结构体><a href=#11-%e9%bb%98%e8%ae%a4%e4%b8%8a%e4%b8%8b%e6%96%87%e4%b8%8e%e7%a7%81%e6%9c%89%e7%bb%93%e6%9e%84%e4%bd%93>#</a>
+1.1 默认上下文与私有结构体</h3><p>context 包中有两个常用的 Background 和 TODO 函数，它们分别用于创建根上下文和未来可能会用到但目前还没有具体值的上下文。这两者返回的上下文均基于内部的私有结构体 emptyCtx，它通过空方法实现了 Context 接口的所有方法，没有任何实际功能。具体来说，backgroundCtx 是上下文的默认值，其他所有上下文都应该从它衍生出来，todoCtx 应该在不确定使用哪种上下文时使用，或仅作为一种占位符存在。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>emptyCtx</span> <span class=kd>struct</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>emptyCtx</span><span class=p>)</span> <span class=nf>Deadline</span><span class=p>()</span> <span class=p>(</span><span class=nx>deadline</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>ok</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>emptyCtx</span><span class=p>)</span> <span class=nf>Done</span><span class=p>()</span> <span class=o>&lt;-</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{}</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>emptyCtx</span><span class=p>)</span> <span class=nf>Err</span><span class=p>()</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>emptyCtx</span><span class=p>)</span> <span class=nf>Value</span><span class=p>(</span><span class=nx>key</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>any</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>backgroundCtx</span> <span class=kd>struct</span><span class=p>{</span> <span class=nx>emptyCtx</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>backgroundCtx</span><span class=p>)</span> <span class=nf>String</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=s>&#34;context.Background&#34;</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>todoCtx</span> <span class=kd>struct</span><span class=p>{</span> <span class=nx>emptyCtx</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>todoCtx</span><span class=p>)</span> <span class=nf>String</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=s>&#34;context.TODO&#34;</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>Background</span><span class=p>()</span> <span class=nx>Context</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>backgroundCtx</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>TODO</span><span class=p>()</span> <span class=nx>Context</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>todoCtx</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>除了这两个简单的默认上下文，context 包还提供了诸多派生上下文，派生上下文用于在已有的上下文中创建一个新的上下文，新上下文继承了原始上下文的一些信息，同时可以添加或修改一些新的属性。派生上下文通常通过 WithXXX 函数实现，例如 WithCancel、WithTimeout、WithDeadline 等，每种派生上下文的使用场景和实现原理会在后面的内容中展开。</p><h3 id=12-派生上下文之传值><a href=#12-%e6%b4%be%e7%94%9f%e4%b8%8a%e4%b8%8b%e6%96%87%e4%b9%8b%e4%bc%a0%e5%80%bc>#</a>
+1.2 派生上下文之传值</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithValue</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span><span class=p>,</span> <span class=nx>val</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>Context</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>valueCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>Context</span>
+</span></span><span class=line><span class=cl>    <span class=nx>key</span><span class=p>,</span> <span class=nx>val</span> <span class=nx>any</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=o>*</span><span class=nx>valueCtx</span><span class=p>)</span> <span class=nf>Value</span><span class=p>(</span><span class=nx>key</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>any</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>value</span><span class=p>(</span><span class=nx>c</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>key</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>any</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>WithValue 函数接受一个父上下文，以及一个 KV 对，返回一个新的上下文。这个新的上下文包含了父上下文的所有信息，并在其中添加了 KV 对数据。valueCtx 的实现原理较为简单，在父上下文的基础上额外增加了 key、val 字段用于保存 KV 对数据。此处值得一提的是 value 函数，value 函数会通过循环从该上下文从上搜索直至到上下文树顶部，在过程中不断根据上下文的类型进行匹配，处理不同类型的上下文。当前上下文是 valueCtx 时，如果键匹配则返回对应的值，否则继续往上层上下文查找；当前上下文是 cancelCtx 时，如果键是 &amp;cancelCtxKey，则返回当前上下文，否则继续往上层上下文查找；当前上下文是 withoutCancelCtx 时，如果键是 &amp;cancelCtxKey，则返回当前上下文，否则继续往上层上下文查找；当前上下文是 timerCtx 时，如果键是 &amp;cancelCtxKey，则返回该上下文关联的 cancelCtx，否则继续往上层上下文查找；当前上下文是 backgroundCtx 或 todoCtx 时，直接返回 nil；对于其他上下文，直接调用上下文的 Value 方法。这里只陈述搜索逻辑，因为尚未提到其他上下文，不具体解释其中的一些行为。</p><h3 id=13-派生上下文之取消><a href=#13-%e6%b4%be%e7%94%9f%e4%b8%8a%e4%b8%8b%e6%96%87%e4%b9%8b%e5%8f%96%e6%b6%88>#</a>
+1.3 派生上下文之取消</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>cancelCtxKey</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>CancelFunc</span> <span class=kd>func</span><span class=p>()</span>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>CancelCauseFunc</span> <span class=kd>func</span><span class=p>(</span><span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithCancel</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>)</span> <span class=p>(</span><span class=nx>ctx</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>cancel</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithCancelCause</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>)</span> <span class=p>(</span><span class=nx>ctx</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>cancel</span> <span class=nx>CancelCauseFunc</span><span class=p>)</span> <span class=p>{</span><span class=o>...</span><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>Cause</span><span class=p>(</span><span class=nx>c</span> <span class=nx>Context</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>canceler</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>cancel</span><span class=p>(</span><span class=nx>removeFromParent</span> <span class=kt>bool</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Done</span><span class=p>()</span> <span class=o>&lt;-</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>cancelCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>Context</span>
+</span></span><span class=line><span class=cl>    <span class=nx>mu</span>       <span class=nx>sync</span><span class=p>.</span><span class=nx>Mutex</span>
+</span></span><span class=line><span class=cl>    <span class=nx>done</span>     <span class=nx>atomic</span><span class=p>.</span><span class=nx>Value</span>
+</span></span><span class=line><span class=cl>    <span class=nx>children</span> <span class=kd>map</span><span class=p>[</span><span class=nx>canceler</span><span class=p>]</span><span class=kd>struct</span><span class=p>{}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>err</span>      <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nx>cause</span>    <span class=kt>error</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>WithCancel 函数返回一个父上下文的拷贝上下文，新上下文使用新的 Done channel，新的 Done channel 当 WithCancel 函数返回的 cancel 函数被调用或者父上下文的 Done channel 被关闭时关闭。WithCancelCause 函数类似，但会额外设置取消原因，这个取消原因可以在被取消的上下文和其派生上下文中通过 Cause 函数来获取，WithCancelCause 函数返回的 cancel 函数只有在上下文还没有取消时可以取消以及设置取消原因。</p><p>WithCancel 和 WithCancelCause 函数返回的上下文均基于内部的私有结构体 cancelCtx，cancelCtx 各字段的作用包括：Context 用于记录父上下文；mu 字段用于保护其他字段的并发访问；done 字段是一个支持原子操作的值容器，用于记录 cancelCtx 的 Done Channel；children 字段是一个存储实现 canceler 接口的子上下文的集合，用于在取消该上下文时，取消其他子上下文，一个实现了 canceler 接口的上下文支持通过 cancel 方法立刻取消该上下文，cancelCtx 和在之后会涉及到的 timerCtx 均实现了该接口；err 字段用于记录该上下文的取消原因或错误状态；cause 字段用于记录该上下文取消的根本原因，即该原因可能是上层上下文传递下来的或是一些底层的错误信息，Cause 函数的实现原理即通过该上下文的 Value 函数循环向上层上下文寻找 cancelCtx，并返回该 cancelCtx 的 cause 字段信息。此外，cancelCtx 的诸多字段会通过惰性创建，在使用的时候进行初始化。</p><p>WithCancel 和 WithCancelCause 函数的实现类似，通过创建一个 cancelCtx，并调用 cancelCtx 的 propagateCancel 方法设置该上下文的父上下文，以便在父上下文被取消时取消该上下文，并返回封装了 cancelCtx 的 cancel 方法的 cancel 函数。propagateCancel 和 cancel 方法是 cancelCtx 的核心方法，在展开 propagateCancel 方法的完整实现逻辑之前，需要首先介绍 context 包中另外两个私有结构体 afterFuncCtx 和 stopCtx 以及工具函数 parentCancelCtx 和 removeChild。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>afterFuncCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>cancelCtx</span>
+</span></span><span class=line><span class=cl>    <span class=nx>once</span> <span class=nx>sync</span><span class=p>.</span><span class=nx>Once</span>
+</span></span><span class=line><span class=cl>    <span class=nx>f</span>    <span class=kd>func</span><span class=p>()</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>stopCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>Context</span>
+</span></span><span class=line><span class=cl>    <span class=nx>stop</span> <span class=kd>func</span><span class=p>()</span> <span class=kt>bool</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>afterFuncCtx 的目的是实现一个带有延迟执行函数的上下文，它包含了一个函数 f，该函数会在该上下文取消时执行，且通过 once 字段确保只执行一次，事实上这个 once 字段还可以保证最多执行一次。stopCtx 被用于当一个带有延迟执行函数的上下文需要注册 cancelCtx 子上下文时，作为该 cancelCtx 上下文的父上下文。stopCtx 相当于一个中间上下文，原本没有 stopCtx 的情况下，在一个带有延迟执行函数的上下文中注册 cancelCtx 子上下文时，cancelCtx 的父上下文则为这个带有延迟执行函数的上下文。stopCtx 提供了取消上下文并注销注册的能力，通过 stop 字段记录的函数可以使得当这个带有延迟执行函数的上下文被取消需要执行延迟执行函数的时候不再执行该 cancelCtx 的 cancel 方法。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>parentCancelCtx</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>)</span> <span class=p>(</span><span class=o>*</span><span class=nx>cancelCtx</span><span class=p>,</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>done</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Done</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>done</span> <span class=o>==</span> <span class=nx>closedchan</span> <span class=o>||</span> <span class=nx>done</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>nil</span><span class=p>,</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>p</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Value</span><span class=p>(</span><span class=o>&amp;</span><span class=nx>cancelCtxKey</span><span class=p>).(</span><span class=o>*</span><span class=nx>cancelCtx</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=p>!</span><span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>nil</span><span class=p>,</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>pdone</span><span class=p>,</span> <span class=nx>_</span> <span class=o>:=</span> <span class=nx>p</span><span class=p>.</span><span class=nx>done</span><span class=p>.</span><span class=nf>Load</span><span class=p>().(</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{})</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>pdone</span> <span class=o>!=</span> <span class=nx>done</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>nil</span><span class=p>,</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>p</span><span class=p>,</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>removeChild</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>child</span> <span class=nx>canceler</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>s</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.(</span><span class=nx>stopCtx</span><span class=p>);</span> <span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>s</span><span class=p>.</span><span class=nf>stop</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>p</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nf>parentCancelCtx</span><span class=p>(</span><span class=nx>parent</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=p>!</span><span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>p</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>p</span><span class=p>.</span><span class=nx>children</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>delete</span><span class=p>(</span><span class=nx>p</span><span class=p>.</span><span class=nx>children</span><span class=p>,</span> <span class=nx>child</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>p</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>parentCancelCtx 函数用于返回父上下文内置的 cancelCtx，removeChild 函数用于从父上下文中移除某个实现 canceler 接口的子上下文，当父上下文是 stopCtx 时，调用 stopCtx 记录的 stop 函数注销子上下文在父上下延迟执行函数中的注册，如果父上下文内置的是 cancelCtx，则将子上下文从父上下文中的 children 字段中删除。值得一提的是，当父上下文是 stopCtx 时，不需要将子上下文从实际父上下文的 children 字段删除，因为子上下文的 cancel 方法通过延迟函数的函数调用行为注册，而没有通过 children 字段注册。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>AfterFunc</span><span class=p>(</span><span class=nx>ctx</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>f</span> <span class=kd>func</span><span class=p>())</span> <span class=p>(</span><span class=nx>stop</span> <span class=kd>func</span><span class=p>()</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>a</span> <span class=o>:=</span> <span class=o>&amp;</span><span class=nx>afterFuncCtx</span><span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>f</span><span class=p>:</span> <span class=nx>f</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>a</span><span class=p>.</span><span class=nx>cancelCtx</span><span class=p>.</span><span class=nf>propagateCancel</span><span class=p>(</span><span class=nx>ctx</span><span class=p>,</span> <span class=nx>a</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kd>func</span><span class=p>()</span> <span class=kt>bool</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>stopped</span> <span class=o>:=</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>        <span class=nx>a</span><span class=p>.</span><span class=nx>once</span><span class=p>.</span><span class=nf>Do</span><span class=p>(</span><span class=kd>func</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>stopped</span> <span class=p>=</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>        <span class=p>})</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>stopped</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>a</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>true</span><span class=p>,</span> <span class=nx>Canceled</span><span class=p>,</span> <span class=kc>nil</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nx>stopped</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>afterFuncer</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>AfterFunc</span><span class=p>(</span><span class=kd>func</span><span class=p>())</span> <span class=kd>func</span><span class=p>()</span> <span class=kt>bool</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>a</span> <span class=o>*</span><span class=nx>afterFuncCtx</span><span class=p>)</span> <span class=nf>cancel</span><span class=p>(</span><span class=nx>removeFromParent</span> <span class=kt>bool</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>a</span><span class=p>.</span><span class=nx>cancelCtx</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>removeFromParent</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nf>removeChild</span><span class=p>(</span><span class=nx>a</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>a</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>a</span><span class=p>.</span><span class=nx>once</span><span class=p>.</span><span class=nf>Do</span><span class=p>(</span><span class=kd>func</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>go</span> <span class=nx>a</span><span class=p>.</span><span class=nf>f</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=p>})</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>这里需要进一步解释带有延迟执行函数的上下文实现原理。AfterFunc 函数用于在上下文中注册一个函数，这个函数会在该上下文被取消时执行这个函数，同时会返回一个 stop 函数，该函数可以在上下文被取消之前放弃在上下文被取消时执行这个函数。AfterFunc 函数的实现依赖于已经提到的 afterFuncCtx，它创建一个中间 cancelCtx，并通过中间 cancelCtx 的 propagateCancel 方法该上下文中注册 afterFuncCtx 子上下文，当该上下文被取消时，会调用 afterFuncCtx 子上下文的 cancel 方法，从而实现在原上下文中增加一个延迟执行函数。当在原上下文返回之前调用 AfterFunc 函数返回的 stop 函数时，会提前取消 afterFuncCtx 上下文，并将其从原上下文中注销注册。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>closedchan</span> <span class=p>=</span> <span class=nb>make</span><span class=p>(</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{})</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>init</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nb>close</span><span class=p>(</span><span class=nx>closedchan</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=o>*</span><span class=nx>cancelCtx</span><span class=p>)</span> <span class=nf>cancel</span><span class=p>(</span><span class=nx>removeFromParent</span> <span class=kt>bool</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>panic</span><span class=p>(</span><span class=s>&#34;context: internal error: missing cancel error&#34;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>cause</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>cause</span> <span class=p>=</span> <span class=nx>err</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>c</span><span class=p>.</span><span class=nx>err</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>err</span> <span class=p>=</span> <span class=nx>err</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>cause</span> <span class=p>=</span> <span class=nx>cause</span>
+</span></span><span class=line><span class=cl>    <span class=nx>d</span><span class=p>,</span> <span class=nx>_</span> <span class=o>:=</span> <span class=nx>c</span><span class=p>.</span><span class=nx>done</span><span class=p>.</span><span class=nf>Load</span><span class=p>().(</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{})</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>d</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>done</span><span class=p>.</span><span class=nf>Store</span><span class=p>(</span><span class=nx>closedchan</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span> <span class=k>else</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>close</span><span class=p>(</span><span class=nx>d</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=nx>child</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>c</span><span class=p>.</span><span class=nx>children</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>child</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>children</span> <span class=p>=</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>removeFromParent</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nf>removeChild</span><span class=p>(</span><span class=nx>c</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>c</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>cancelCtx 的 cancel 方法用于关闭 Done Channel 取消该上下文，并且会通过 child 字段调用每个子上下文的 cancel 方法取消子上下文，并通过 removeChild 函数将自己从父上下文中删去，过程中会通过 closedchan 实现复用。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span><span class=lnt>47
+</span><span class=lnt>48
+</span><span class=lnt>49
+</span><span class=lnt>50
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>goroutines</span> <span class=nx>atomic</span><span class=p>.</span><span class=nx>Int32</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=o>*</span><span class=nx>cancelCtx</span><span class=p>)</span> <span class=nf>propagateCancel</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>child</span> <span class=nx>canceler</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>Context</span> <span class=p>=</span> <span class=nx>parent</span>
+</span></span><span class=line><span class=cl>    <span class=nx>done</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Done</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>done</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>select</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>case</span> <span class=o>&lt;-</span><span class=nx>done</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>        <span class=nx>child</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Err</span><span class=p>(),</span> <span class=nf>Cause</span><span class=p>(</span><span class=nx>parent</span><span class=p>))</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=k>default</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>p</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nf>parentCancelCtx</span><span class=p>(</span><span class=nx>parent</span><span class=p>);</span> <span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>p</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>p</span><span class=p>.</span><span class=nx>err</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>child</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>p</span><span class=p>.</span><span class=nx>err</span><span class=p>,</span> <span class=nx>p</span><span class=p>.</span><span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span> <span class=k>else</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=k>if</span> <span class=nx>p</span><span class=p>.</span><span class=nx>children</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                <span class=nx>p</span><span class=p>.</span><span class=nx>children</span> <span class=p>=</span> <span class=nb>make</span><span class=p>(</span><span class=kd>map</span><span class=p>[</span><span class=nx>canceler</span><span class=p>]</span><span class=kd>struct</span><span class=p>{})</span>
+</span></span><span class=line><span class=cl>            <span class=p>}</span>
+</span></span><span class=line><span class=cl>            <span class=nx>p</span><span class=p>.</span><span class=nx>children</span><span class=p>[</span><span class=nx>child</span><span class=p>]</span> <span class=p>=</span> <span class=kd>struct</span><span class=p>{}{}</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=nx>p</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>a</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.(</span><span class=nx>afterFuncer</span><span class=p>);</span> <span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=nx>stop</span> <span class=o>:=</span> <span class=nx>a</span><span class=p>.</span><span class=nf>AfterFunc</span><span class=p>(</span><span class=kd>func</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>child</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Err</span><span class=p>(),</span> <span class=nf>Cause</span><span class=p>(</span><span class=nx>parent</span><span class=p>))</span>
+</span></span><span class=line><span class=cl>        <span class=p>})</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>Context</span> <span class=p>=</span> <span class=nx>stopCtx</span><span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>Context</span><span class=p>:</span> <span class=nx>parent</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>            <span class=nx>stop</span><span class=p>:</span> <span class=nx>stop</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>goroutines</span><span class=p>.</span><span class=nf>Add</span><span class=p>(</span><span class=mi>1</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>go</span> <span class=kd>func</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>select</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=k>case</span> <span class=o>&lt;-</span><span class=nx>parent</span><span class=p>.</span><span class=nf>Done</span><span class=p>():</span>
+</span></span><span class=line><span class=cl>                <span class=nx>child</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Err</span><span class=p>(),</span> <span class=nf>Cause</span><span class=p>(</span><span class=nx>parent</span><span class=p>))</span>
+</span></span><span class=line><span class=cl>            <span class=k>case</span> <span class=o>&lt;-</span><span class=nx>child</span><span class=p>.</span><span class=nf>Done</span><span class=p>():</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}()</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>在梳理了上述内容之后，最核心的 propagteCancel 方法的实现变得十分清晰。在注册子上下文至父上下文时，如果父上下文内置了 cancelCtx，则直接将自己的 cancel 方法通过父上下文的 children 字段注册，如果父上下文实现了 afterFuncer 接口，则通过父上下文的 AfterFunc 方法以父上下文延迟执行函数的形式注册，并通过中间上下文 stopCtx，保存注销注册的函数，如果父上下文不属于这两类，则创建一个 Goroutine 通过 select 来监听父上下文和子上下文的取消情况。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithoutCancel</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>)</span> <span class=nx>Context</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>withoutCancelCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span> <span class=nx>Context</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>withoutCancelCtx</span><span class=p>)</span> <span class=nf>Deadline</span><span class=p>()</span> <span class=p>(</span><span class=nx>deadline</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>ok</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>withoutCancelCtx</span><span class=p>)</span> <span class=nf>Done</span><span class=p>()</span> <span class=o>&lt;-</span><span class=kd>chan</span> <span class=kd>struct</span><span class=p>{}</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>withoutCancelCtx</span><span class=p>)</span> <span class=nf>Err</span><span class=p>()</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=nx>withoutCancelCtx</span><span class=p>)</span> <span class=nf>Value</span><span class=p>(</span><span class=nx>key</span> <span class=nx>any</span><span class=p>)</span> <span class=nx>any</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nf>value</span><span class=p>(</span><span class=nx>c</span><span class=p>,</span> <span class=nx>key</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=nx>withoutCancelCtx</span><span class=p>)</span> <span class=nf>String</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nf>contextName</span><span class=p>(</span><span class=nx>c</span><span class=p>.</span><span class=nx>c</span><span class=p>)</span> <span class=o>+</span> <span class=s>&#34;.WithoutCancel&#34;</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>WithoutCancel 函数提供了一个父上下文的拷贝，并没有继续维持上下文中之间的取消能力，当父上下文取消时，子上下文不会取消。</p><h3 id=14-派生上下文之超时><a href=#14-%e6%b4%be%e7%94%9f%e4%b8%8a%e4%b8%8b%e6%96%87%e4%b9%8b%e8%b6%85%e6%97%b6>#</a>
+1.4 派生上下文之超时</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithDeadline</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>d</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>)</span> <span class=p>(</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithDeadlineCause</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>d</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>(</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithTimeout</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>timeout</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Duration</span><span class=p>)</span> <span class=p>(</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithTimeoutCause</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>timeout</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Duration</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>(</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>WithDeadline、WithDeadlineCause、WithTimeout 和 WithTimeoutCause 函数提供了一个带有截止时间的上下文，该上下文会集成父上下文的特性，并在截止时间到达时，取消该上下文。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span><span class=lnt>47
+</span><span class=lnt>48
+</span><span class=lnt>49
+</span><span class=lnt>50
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>context</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>WithDeadlineCause</span><span class=p>(</span><span class=nx>parent</span> <span class=nx>Context</span><span class=p>,</span> <span class=nx>d</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>(</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>CancelFunc</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>parent</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>panic</span><span class=p>(</span><span class=s>&#34;cannot create context from nil parent&#34;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>cur</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>parent</span><span class=p>.</span><span class=nf>Deadline</span><span class=p>();</span> <span class=nx>ok</span> <span class=o>&amp;&amp;</span> <span class=nx>cur</span><span class=p>.</span><span class=nf>Before</span><span class=p>(</span><span class=nx>d</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nf>WithCancel</span><span class=p>(</span><span class=nx>parent</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span> <span class=o>:=</span> <span class=o>&amp;</span><span class=nx>timerCtx</span><span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>deadline</span><span class=p>:</span> <span class=nx>d</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>cancelCtx</span><span class=p>.</span><span class=nf>propagateCancel</span><span class=p>(</span><span class=nx>parent</span><span class=p>,</span> <span class=nx>c</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nx>dur</span> <span class=o>:=</span> <span class=nx>time</span><span class=p>.</span><span class=nf>Until</span><span class=p>(</span><span class=nx>d</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>dur</span> <span class=o>&lt;=</span> <span class=mi>0</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>true</span><span class=p>,</span> <span class=nx>DeadlineExceeded</span><span class=p>,</span> <span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nx>c</span><span class=p>,</span> <span class=kd>func</span><span class=p>()</span> <span class=p>{</span> <span class=nx>c</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>Canceled</span><span class=p>,</span> <span class=kc>nil</span><span class=p>)</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>defer</span> <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>c</span><span class=p>.</span><span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>timer</span> <span class=p>=</span> <span class=nx>time</span><span class=p>.</span><span class=nf>AfterFunc</span><span class=p>(</span><span class=nx>dur</span><span class=p>,</span> <span class=kd>func</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>c</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>true</span><span class=p>,</span> <span class=nx>DeadlineExceeded</span><span class=p>,</span> <span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=p>})</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>c</span><span class=p>,</span> <span class=kd>func</span><span class=p>()</span> <span class=p>{</span> <span class=nx>c</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>true</span><span class=p>,</span> <span class=nx>Canceled</span><span class=p>,</span> <span class=kc>nil</span><span class=p>)</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>timerCtx</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>cancelCtx</span>
+</span></span><span class=line><span class=cl>    <span class=nx>timer</span> <span class=o>*</span><span class=nx>time</span><span class=p>.</span><span class=nx>Timer</span>
+</span></span><span class=line><span class=cl>    <span class=nx>deadline</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=o>*</span><span class=nx>timerCtx</span><span class=p>)</span> <span class=nf>Deadline</span><span class=p>()</span> <span class=p>(</span><span class=nx>deadline</span> <span class=nx>time</span><span class=p>.</span><span class=nx>Time</span><span class=p>,</span> <span class=nx>ok</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>c</span><span class=p>.</span><span class=nx>deadline</span><span class=p>,</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>c</span> <span class=o>*</span><span class=nx>timerCtx</span><span class=p>)</span> <span class=nf>cancel</span><span class=p>(</span><span class=nx>removeFromParent</span> <span class=kt>bool</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>cancelCtx</span><span class=p>.</span><span class=nf>cancel</span><span class=p>(</span><span class=kc>false</span><span class=p>,</span> <span class=nx>err</span><span class=p>,</span> <span class=nx>cause</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>removeFromParent</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nf>removeChild</span><span class=p>(</span><span class=nx>c</span><span class=p>.</span><span class=nx>cancelCtx</span><span class=p>.</span><span class=nx>Context</span><span class=p>,</span> <span class=nx>c</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Lock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>c</span><span class=p>.</span><span class=nx>timer</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>timer</span><span class=p>.</span><span class=nf>Stop</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        <span class=nx>c</span><span class=p>.</span><span class=nx>timer</span> <span class=p>=</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>c</span><span class=p>.</span><span class=nx>mu</span><span class=p>.</span><span class=nf>Unlock</span><span class=p>()</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>WithDeadlineCause 函数通过内部的私有结构体 timerCtx 实现，timerCtx 依赖 cancelCtx 实现大部分功能，实现逻辑较为简单。当创建一个 timerCtx 时，根据截至时间和 time.AfterFunc 函数创建一个延迟执行函数，当时间截止后，调用 timerCtx 的 cancel 方法，此外，也可以通过 WIthDeadlineCause 函数返回的 cancel 函数提前调用 timerCtx 的 cancel 方法。</p><h2 id=二errors><a href=#%e4%ba%8cerrors>#</a>
+二、errors</h2><h3 id=21-基本定义><a href=#21-%e5%9f%ba%e6%9c%ac%e5%ae%9a%e4%b9%89>#</a>
+2.1 基本定义</h3><p>error 是 builtin 包内置的一个接口，定义了表示错误的基本类型，error 接口只有一个方法，nil 表示没有错误。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>builtin</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=kt>error</span> <span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nf>Error</span><span class=p>()</span> <span class=kt>string</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>New 方法返回一个包含 string 的 error 实现 errorString。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>errors</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>New</span><span class=p>(</span><span class=nx>text</span> <span class=kt>string</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>	<span class=k>return</span> <span class=o>&amp;</span><span class=nx>errorString</span><span class=p>{</span><span class=nx>text</span><span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>errorString</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>	<span class=nx>s</span> <span class=kt>string</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>e</span> <span class=o>*</span><span class=nx>errorString</span><span class=p>)</span> <span class=nf>Error</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>	<span class=k>return</span> <span class=nx>e</span><span class=p>.</span><span class=nx>s</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>ErrUnsupported</span> <span class=p>=</span> <span class=nf>New</span><span class=p>(</span><span class=s>&#34;unsupported operation&#34;</span><span class=p>)</span>
+</span></span></code></pre></td></tr></table></div></div><h3 id=22-错误链><a href=#22-%e9%94%99%e8%af%af%e9%93%be>#</a>
+2.2 错误链</h3><p>为了提供关于错误的额外上下文，在错误处理过程中实现更复杂的操作，通过 errors 包提供的相关函数以及 fmt 包提供的 %w 标志，可以简单的将错误包裹在另一个错误中，形成清晰的错误处理链条。</p><p>Unwrap 函数用于获取错误链中的下一个错误，可以通过循环来迭代整个错误链。Is 函数用于比较错误链中的错误，判断某个特定类型的错误是否存在于错误莲中，这种方式比直接使用 == 更加令灵活，因为它不仅会检查最外层的错误。As 函数用于将错误断言为某个接口类型，并将该类型的值存储在目标变量中，这对于处理实现了特定接口的错误很有用。Is 和 As 函数都都可以以整个错误链为对象进行递归操作，提供对错误链的原生支持。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span><span class=lnt>43
+</span><span class=lnt>44
+</span><span class=lnt>45
+</span><span class=lnt>46
+</span><span class=lnt>47
+</span><span class=lnt>48
+</span><span class=lnt>49
+</span><span class=lnt>50
+</span><span class=lnt>51
+</span><span class=lnt>52
+</span><span class=lnt>53
+</span><span class=lnt>54
+</span><span class=lnt>55
+</span><span class=lnt>56
+</span><span class=lnt>57
+</span><span class=lnt>58
+</span><span class=lnt>59
+</span><span class=lnt>60
+</span><span class=lnt>61
+</span><span class=lnt>62
+</span><span class=lnt>63
+</span><span class=lnt>64
+</span><span class=lnt>65
+</span><span class=lnt>66
+</span><span class=lnt>67
+</span><span class=lnt>68
+</span><span class=lnt>69
+</span><span class=lnt>70
+</span><span class=lnt>71
+</span><span class=lnt>72
+</span><span class=lnt>73
+</span><span class=lnt>74
+</span><span class=lnt>75
+</span><span class=lnt>76
+</span><span class=lnt>77
+</span><span class=lnt>78
+</span><span class=lnt>79
+</span><span class=lnt>80
+</span><span class=lnt>81
+</span><span class=lnt>82
+</span><span class=lnt>83
+</span><span class=lnt>84
+</span><span class=lnt>85
+</span><span class=lnt>86
+</span><span class=lnt>87
+</span><span class=lnt>88
+</span><span class=lnt>89
+</span><span class=lnt>90
+</span><span class=lnt>91
+</span><span class=lnt>92
+</span><span class=lnt>93
+</span><span class=lnt>94
+</span><span class=lnt>95
+</span><span class=lnt>96
+</span><span class=lnt>97
+</span><span class=lnt>98
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>errors</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>Unwrap</span><span class=p>(</span><span class=nx>err</span> <span class=kt>error</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>u</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>err</span><span class=p>.(</span><span class=kd>interface</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nf>Unwrap</span><span class=p>()</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=p>})</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=p>!</span><span class=nx>ok</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>u</span><span class=p>.</span><span class=nf>Unwrap</span><span class=p>()</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>Is</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span> <span class=kt>error</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>target</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nx>err</span> <span class=o>==</span> <span class=nx>target</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>isComparable</span> <span class=o>:=</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nf>TypeOf</span><span class=p>(</span><span class=nx>target</span><span class=p>).</span><span class=nf>Comparable</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nf>is</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span><span class=p>,</span> <span class=nx>isComparable</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>is</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span> <span class=kt>error</span><span class=p>,</span> <span class=nx>targetComparable</span> <span class=kt>bool</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>targetComparable</span> <span class=o>&amp;&amp;</span> <span class=nx>err</span> <span class=o>==</span> <span class=nx>target</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>x</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>err</span><span class=p>.(</span><span class=kd>interface</span><span class=p>{</span> <span class=nf>Is</span><span class=p>(</span><span class=kt>error</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>});</span> <span class=nx>ok</span> <span class=o>&amp;&amp;</span> <span class=nx>x</span><span class=p>.</span><span class=nf>Is</span><span class=p>(</span><span class=nx>target</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>switch</span> <span class=nx>x</span> <span class=o>:=</span> <span class=nx>err</span><span class=p>.(</span><span class=kd>type</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>case</span> <span class=kd>interface</span><span class=p>{</span> <span class=nf>Unwrap</span><span class=p>()</span> <span class=kt>error</span> <span class=p>}:</span>
+</span></span><span class=line><span class=cl>            <span class=nx>err</span> <span class=p>=</span> <span class=nx>x</span><span class=p>.</span><span class=nf>Unwrap</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>            <span class=k>if</span> <span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>            <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>case</span> <span class=kd>interface</span><span class=p>{</span> <span class=nf>Unwrap</span><span class=p>()</span> <span class=p>[]</span><span class=kt>error</span> <span class=p>}:</span>
+</span></span><span class=line><span class=cl>            <span class=k>for</span> <span class=nx>_</span><span class=p>,</span> <span class=nx>err</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>x</span><span class=p>.</span><span class=nf>Unwrap</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                <span class=k>if</span> <span class=nf>is</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span><span class=p>,</span> <span class=nx>targetComparable</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                    <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>                <span class=p>}</span>
+</span></span><span class=line><span class=cl>            <span class=p>}</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>        <span class=k>default</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>As</span><span class=p>(</span><span class=nx>err</span> <span class=kt>error</span><span class=p>,</span> <span class=nx>target</span> <span class=nx>any</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>target</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>panic</span><span class=p>(</span><span class=s>&#34;errors: target cannot be nil&#34;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>val</span> <span class=o>:=</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nf>ValueOf</span><span class=p>(</span><span class=nx>target</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=nx>typ</span> <span class=o>:=</span> <span class=nx>val</span><span class=p>.</span><span class=nf>Type</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>typ</span><span class=p>.</span><span class=nf>Kind</span><span class=p>()</span> <span class=o>!=</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nx>Ptr</span> <span class=o>||</span> <span class=nx>val</span><span class=p>.</span><span class=nf>IsNil</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>panic</span><span class=p>(</span><span class=s>&#34;errors: target must be a non-nil pointer&#34;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>targetType</span> <span class=o>:=</span> <span class=nx>typ</span><span class=p>.</span><span class=nf>Elem</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>targetType</span><span class=p>.</span><span class=nf>Kind</span><span class=p>()</span> <span class=o>!=</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nx>Interface</span> <span class=o>&amp;&amp;</span> <span class=p>!</span><span class=nx>targetType</span><span class=p>.</span><span class=nf>Implements</span><span class=p>(</span><span class=nx>errorType</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nb>panic</span><span class=p>(</span><span class=s>&#34;errors: *target must be interface or implement error&#34;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nf>as</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span><span class=p>,</span> <span class=nx>val</span><span class=p>,</span> <span class=nx>targetType</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>as</span><span class=p>(</span><span class=nx>err</span> <span class=kt>error</span><span class=p>,</span> <span class=nx>target</span> <span class=nx>any</span><span class=p>,</span> <span class=nx>targetVal</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nx>Value</span><span class=p>,</span> <span class=nx>targetType</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nx>Type</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nf>TypeOf</span><span class=p>(</span><span class=nx>err</span><span class=p>).</span><span class=nf>AssignableTo</span><span class=p>(</span><span class=nx>targetType</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>targetVal</span><span class=p>.</span><span class=nf>Elem</span><span class=p>().</span><span class=nf>Set</span><span class=p>(</span><span class=nx>reflectlite</span><span class=p>.</span><span class=nf>ValueOf</span><span class=p>(</span><span class=nx>err</span><span class=p>))</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>x</span><span class=p>,</span> <span class=nx>ok</span> <span class=o>:=</span> <span class=nx>err</span><span class=p>.(</span><span class=kd>interface</span><span class=p>{</span> <span class=nf>As</span><span class=p>(</span><span class=nx>any</span><span class=p>)</span> <span class=kt>bool</span> <span class=p>});</span> <span class=nx>ok</span> <span class=o>&amp;&amp;</span> <span class=nx>x</span><span class=p>.</span><span class=nf>As</span><span class=p>(</span><span class=nx>target</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>switch</span> <span class=nx>x</span> <span class=o>:=</span> <span class=nx>err</span><span class=p>.(</span><span class=kd>type</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>case</span> <span class=kd>interface</span><span class=p>{</span> <span class=nf>Unwrap</span><span class=p>()</span> <span class=kt>error</span> <span class=p>}:</span>
+</span></span><span class=line><span class=cl>            <span class=nx>err</span> <span class=p>=</span> <span class=nx>x</span><span class=p>.</span><span class=nf>Unwrap</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>            <span class=k>if</span> <span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>            <span class=p>}</span>
+</span></span><span class=line><span class=cl>        <span class=k>case</span> <span class=kd>interface</span><span class=p>{</span> <span class=nf>Unwrap</span><span class=p>()</span> <span class=p>[]</span><span class=kt>error</span> <span class=p>}:</span>
+</span></span><span class=line><span class=cl>            <span class=k>for</span> <span class=nx>_</span><span class=p>,</span> <span class=nx>err</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>x</span><span class=p>.</span><span class=nf>Unwrap</span><span class=p>()</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                <span class=k>if</span> <span class=nx>err</span> <span class=o>==</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                    <span class=k>continue</span>
+</span></span><span class=line><span class=cl>                <span class=p>}</span>
+</span></span><span class=line><span class=cl>                <span class=k>if</span> <span class=nf>as</span><span class=p>(</span><span class=nx>err</span><span class=p>,</span> <span class=nx>target</span><span class=p>,</span> <span class=nx>targetVal</span><span class=p>,</span> <span class=nx>targetType</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>                    <span class=k>return</span> <span class=kc>true</span>
+</span></span><span class=line><span class=cl>                <span class=p>}</span>
+</span></span><span class=line><span class=cl>            <span class=p>}</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>        <span class=k>default</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>false</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>var</span> <span class=nx>errorType</span> <span class=p>=</span> <span class=nx>reflectlite</span><span class=p>.</span><span class=nf>TypeOf</span><span class=p>((</span><span class=o>*</span><span class=kt>error</span><span class=p>)(</span><span class=kc>nil</span><span class=p>)).</span><span class=nf>Elem</span><span class=p>()</span>
+</span></span></code></pre></td></tr></table></div></div><h3 id=23-错误合并><a href=#23-%e9%94%99%e8%af%af%e5%90%88%e5%b9%b6>#</a>
+2.3 错误合并</h3><p>Join 方法用于将数个 error 合并成一个 error，其具体实现通过返回一个包含 error 数组的 error 实现 joinError。joinError 实现的 Error 方法会将内部 error 数组的多个 error 所提供的错误信息通过换行符连接，Unwrap 方法用于将 joinError 方便地纳入错误链之中，在上一小节中错误链提供的方法会原生支持 joinError。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span><span class=lnt>30
+</span><span class=lnt>31
+</span><span class=lnt>32
+</span><span class=lnt>33
+</span><span class=lnt>34
+</span><span class=lnt>35
+</span><span class=lnt>36
+</span><span class=lnt>37
+</span><span class=lnt>38
+</span><span class=lnt>39
+</span><span class=lnt>40
+</span><span class=lnt>41
+</span><span class=lnt>42
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>errors</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>Join</span><span class=p>(</span><span class=nx>errs</span> <span class=o>...</span><span class=kt>error</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>n</span> <span class=o>:=</span> <span class=mi>0</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=nx>_</span><span class=p>,</span> <span class=nx>err</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>errs</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>err</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>n</span><span class=o>++</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nx>n</span> <span class=o>==</span> <span class=mi>0</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=kc>nil</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>e</span> <span class=o>:=</span> <span class=o>&amp;</span><span class=nx>joinError</span><span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>errs</span><span class=p>:</span> <span class=nb>make</span><span class=p>([]</span><span class=kt>error</span><span class=p>,</span> <span class=mi>0</span><span class=p>,</span> <span class=nx>n</span><span class=p>),</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=nx>_</span><span class=p>,</span> <span class=nx>err</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>errs</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=nx>err</span> <span class=o>!=</span> <span class=kc>nil</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>            <span class=nx>e</span><span class=p>.</span><span class=nx>errs</span> <span class=p>=</span> <span class=nb>append</span><span class=p>(</span><span class=nx>e</span><span class=p>.</span><span class=nx>errs</span><span class=p>,</span> <span class=nx>err</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>e</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>joinError</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>errs</span> <span class=p>[]</span><span class=kt>error</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>e</span> <span class=o>*</span><span class=nx>joinError</span><span class=p>)</span> <span class=nf>Error</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=nb>len</span><span class=p>(</span><span class=nx>e</span><span class=p>.</span><span class=nx>errs</span><span class=p>)</span> <span class=o>==</span> <span class=mi>1</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=nx>e</span><span class=p>.</span><span class=nx>errs</span><span class=p>[</span><span class=mi>0</span><span class=p>].</span><span class=nf>Error</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=nx>b</span> <span class=o>:=</span> <span class=p>[]</span><span class=nb>byte</span><span class=p>(</span><span class=nx>e</span><span class=p>.</span><span class=nx>errs</span><span class=p>[</span><span class=mi>0</span><span class=p>].</span><span class=nf>Error</span><span class=p>())</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> <span class=nx>_</span><span class=p>,</span> <span class=nx>err</span> <span class=o>:=</span> <span class=k>range</span> <span class=nx>e</span><span class=p>.</span><span class=nx>errs</span><span class=p>[</span><span class=mi>1</span><span class=p>:]</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>        <span class=nx>b</span> <span class=p>=</span> <span class=nb>append</span><span class=p>(</span><span class=nx>b</span><span class=p>,</span> <span class=sc>&#39;\n&#39;</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=nx>b</span> <span class=p>=</span> <span class=nb>append</span><span class=p>(</span><span class=nx>b</span><span class=p>,</span> <span class=nx>err</span><span class=p>.</span><span class=nf>Error</span><span class=p>()</span><span class=o>...</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=p>}</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>unsafe</span><span class=p>.</span><span class=nf>String</span><span class=p>(</span><span class=o>&amp;</span><span class=nx>b</span><span class=p>[</span><span class=mi>0</span><span class=p>],</span> <span class=nb>len</span><span class=p>(</span><span class=nx>b</span><span class=p>))</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>e</span> <span class=o>*</span><span class=nx>joinError</span><span class=p>)</span> <span class=nf>Unwrap</span><span class=p>()</span> <span class=p>[]</span><span class=kt>error</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>e</span><span class=p>.</span><span class=nx>errs</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><h2 id=三bufio><a href=#%e4%b8%89bufio>#</a>
+三、bufio</h2><p>bufio 包包装了 io.Reader 和 io.Writer 对象，并提供了带缓冲的 IO 操作，用以提高 IO 操作的性能。该包包含了一些用于读写数据的缓冲区，以减少系统调用的次数，从而提高效率。</p><h3 id=31-reader><a href=#31-reader>#</a>
+3.1 Reader</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>bufio</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Reader</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>buf</span>          <span class=p>[]</span><span class=kt>byte</span>
+</span></span><span class=line><span class=cl>    <span class=nx>rd</span>           <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span>
+</span></span><span class=line><span class=cl>    <span class=nx>r</span><span class=p>,</span> <span class=nx>w</span>         <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>err</span>          <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nx>lastByte</span>     <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>lastRuneSize</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewReaderSize</span><span class=p>(</span><span class=nx>rd</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span><span class=p>,</span> <span class=nx>size</span> <span class=kt>int</span><span class=p>)</span> <span class=o>*</span><span class=nx>Reader</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewReader</span><span class=p>(</span><span class=nx>rd</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span><span class=p>)</span> <span class=o>*</span><span class=nx>Reader</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Size</span><span class=p>()</span> <span class=kt>int</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Reset</span><span class=p>(</span><span class=nx>r</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Peek</span><span class=p>(</span><span class=nx>n</span> <span class=kt>int</span><span class=p>)</span> <span class=p>([]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Discard</span><span class=p>(</span><span class=nx>n</span> <span class=kt>int</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Read</span><span class=p>(</span><span class=nx>p</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadByte</span><span class=p>()</span> <span class=p>(</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>UnreadByte</span><span class=p>()</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadRune</span><span class=p>()</span> <span class=p>(</span><span class=kt>rune</span><span class=p>,</span> <span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>UnreadRune</span><span class=p>()</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>Buffered</span><span class=p>()</span> <span class=kt>int</span> <span class=p>{</span> <span class=p>..</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadSlice</span><span class=p>(</span><span class=nx>delim</span> <span class=kt>byte</span><span class=p>)</span> <span class=p>([]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadLine</span><span class=p>()</span> <span class=p>([]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>bool</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadBytes</span><span class=p>(</span><span class=nx>delim</span> <span class=kt>byte</span><span class=p>)</span> <span class=p>([]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>ReadString</span><span class=p>(</span><span class=nx>delim</span> <span class=kt>byte</span><span class=p>)</span> <span class=p>(</span><span class=kt>string</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>)</span> <span class=nf>WriteTo</span><span class=p>(</span><span class=nx>w</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Writer</span><span class=p>)</span> <span class=p>(</span><span class=kt>int64</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>在 Reader 结构体中，buf 用于存储数据的字节切片，在读取时将数据存储在这个缓冲区中，以减少对底层 io.Reader 的实际读取次数，rd 用于存储 Reader 使用的底层数据源，它是一个实现了 io.Reader 接口的对象，r、w 用于跟踪缓冲区的读写状态，lastByte 用于存储最后一个读取的字节，lastRuneSize 用于记录最后读取的一个 Unicode 字符的大小。通过 lastByte 和 lastRuneSize 可以将最后一个字节或 Unicode 字符放回缓冲区，以便后续的读取操作能够重新读取该字节。</p><p>Peek 方法在不消费数据的情况下返回接下来 n 个字节的数据，当 n 大于缓存 Reader 缓存区大小时，则最多返回缓存区大小的数据。Discard 方法跳过接下来 n 个字节的数据，不同于 Peek 方法，在不发生错误的前提下，Discard 方法一定会跳过 n 个字节的数据。Read 方法读取 n 个字节至指定数组中，在 Reader 中存在缓存数据时，会直接将缓存的数据拷贝至指定数组，且不额外读取新的数据，当 Reader 中不存在缓存数据时，当指定数组的字节大小大于 Reader 的缓冲区大小时，直接调用内部 io.Reader 提供的方法读取一次数据至指定数组，避免内存拷贝开销，当指定数组的字节大小小于 Reader 的缓冲区大小时，调用内部 io.Reader 提供的方法读取一次数据至缓冲区，并将缓冲区的数据再次拷贝至指定数组。值得一提的是，Read 方法最多只会调用内部 io.Reader 的接口读取一次，不保障一定能读出数据，而之前提到的 Peek 方法和 Discard 方法由于内部使用了循环，至少保障能读出一次数据（若循环次数大于内部设定的值，则也无法读出数据）。</p><p>ReadByte 和 ReadRune 方法类似，在不发生错误的前提下，循环填充缓冲区，以至能够缓冲区中的数据能够拷贝返回一个字节的数据或是 Unicode 字符。UnreadByte 和 UnReadRune 方法用于将消费的最后一个字节数据或 Unicode 字符放回缓冲区，以便后续的读取操作能够重新读取该字节数据或 Unicode 字符。</p><p>ReadSlice 方法用以从输入流中读取以指定字节为分割符的一行数据，循环调用内部 io.Reader 提供的方法填充缓冲区，直至出现指定字符、填满缓冲区或出现错误时返回数据，扫描指定字符时会在每次循环更新扫描开始位置，确保不重复扫描同一个数据区域。ReadLine 方法用于从输入流中处理以换行符 &lsquo;\r&rsquo; 和 &lsquo;\n&rsquo; 结尾的一行数据，并自动去除换行符，当缓冲区满时，如果数据以 &lsquo;\r&rsquo; 结尾，则可能存在 &lsquo;\r&rsquo; 和 &lsquo;\n&rsquo; 跨越缓冲区的情况，会将 &lsquo;\r&rsquo; 放回缓冲区。ReadSlice 方法当缓冲区填满时即时没有出现指定字符也会返回，ReadBytes 方法循环调用 ReadSlice 直至出现指定字符，并将多次读取的数据拼接成一个完成的数据返回。ReadString 方法类似，但返回的不是字节数组而是字符串类型。</p><p>上述提到的所有方法有些是返回缓冲区的引用，有些需要将缓冲区的数据进行拷贝。具体来说，Peek、ReadSlice、ReadLine 实现了零拷贝，Read、ReadByte、ReadRune、ReadBytes、ReadString 需要额外一次内存拷贝。</p><p>WriteTo 方法用于将 Reader 的所有数据写入实现 io.Writer 接口的对象中，该方法首先将缓存中的数据写入，如果 Reader 内部的 io.Reader 实现了 WriterTo 方法，则直接调用内部 io.Reader 的 WriterTo 方法完成后续流程，如果传入的实现了 io.Writer 接口的对象 实现了 ReaderFrom 方法，则直接通过该 ReadFrom 方法完成后续流程，否则循环填充缓存，并将缓存中的数据写入，直至遇到 io.EOF 错误写入所有数据。</p><h3 id=32-writer><a href=#32-writer>#</a>
+3.2 Writer</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>bufio</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Writer</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>err</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nx>buf</span> <span class=p>[]</span><span class=kt>byte</span>
+</span></span><span class=line><span class=cl>    <span class=nx>n</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>wr</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Writer</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewWriterSize</span><span class=p>(</span><span class=nx>w</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Writer</span><span class=p>,</span> <span class=nx>size</span> <span class=kt>int</span><span class=p>)</span> <span class=o>*</span><span class=nx>Writer</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewWriter</span><span class=p>(</span><span class=nx>w</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Writer</span><span class=p>)</span> <span class=o>*</span><span class=nx>Writer</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Size</span><span class=p>()</span> <span class=kt>int</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Reset</span><span class=p>(</span><span class=nx>w</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Writer</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Flush</span><span class=p>()</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Available</span><span class=p>()</span> <span class=kt>int</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>AvailableBuffer</span><span class=p>()</span> <span class=p>[]</span><span class=kt>byte</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Buffered</span><span class=p>()</span> <span class=kt>int</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>Write</span><span class=p>(</span><span class=nx>p</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>WriteByte</span><span class=p>(</span><span class=nx>c</span> <span class=kt>byte</span><span class=p>)</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>WriteRune</span><span class=p>(</span><span class=nx>r</span> <span class=kt>rune</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>WriteString</span><span class=p>(</span><span class=nx>s</span> <span class=kt>string</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>ReadFrom</span><span class=p>(</span><span class=nx>r</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span><span class=p>)</span> <span class=p>(</span><span class=kt>int64</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>Writer 的实现相对简单，err 记录读写过程中的错误，buf 用于写入缓存，n 用于记录缓存的字节数，wr 记录封装的 io.Writer。Writer 缓存的默认大小为 4096 Bytes，且在创建完成后大小不会发生变化。Flush 函数用于将 Writer 缓存的数据写入内部的 io.Writer。Write、WriteByte、WriteRune、WriteString 函数用于写入指定的数据，在写入过程中，会首先尝试填充缓存，并当缓存满的时候调用 Flush 并循环直至需要写入的所有数据均以写入缓存或写入内部的 io.Writer，并且在过程中发现需要写入的数据过大时会将数据直接写入内部的 io.Writer，避免拷贝带来的过大开销。ReadFrom 函数用于从一个数据源读取数据，并将获取的数据写入，在读取过程中会首先将读取的数据写入缓存，并当缓存的数据全部写入后，通过内部的 io.Writer 实现的 ReadFrom 函数继续剩余的过程。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>b</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=nf>AvailableBuffer</span><span class=p>()</span> <span class=p>[]</span><span class=kt>byte</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=nx>b</span><span class=p>.</span><span class=nx>buf</span><span class=p>[</span><span class=nx>b</span><span class=p>.</span><span class=nx>n</span><span class=p>:][:</span><span class=mi>0</span><span class=p>]</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>AvailableBuffer 方法提供了一种零拷贝的写入方法，这个函数的目的是返回一个空的缓冲区，其容量等于 Writer 缓存未被填满的空间。通过这个方法，调用者可以在 Writer 缓存中直接追加数据，从而避免其他写入方法带来的额外一次内存拷贝。需要注意的是，函数返回的缓冲区仅在下一次写入操作之前有效，否则会引入数据错乱。</p><h3 id=33-readwriter><a href=#33-readwriter>#</a>
+3.3 ReadWriter</h3><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt>1
+</span><span class=lnt>2
+</span><span class=lnt>3
+</span><span class=lnt>4
+</span><span class=lnt>5
+</span><span class=lnt>6
+</span><span class=lnt>7
+</span><span class=lnt>8
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>bufio</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>ReadWriter</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=o>*</span><span class=nx>Reader</span>
+</span></span><span class=line><span class=cl>    <span class=o>*</span><span class=nx>Writer</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewReadWriter</span><span class=p>(</span><span class=nx>r</span> <span class=o>*</span><span class=nx>Reader</span><span class=p>,</span> <span class=nx>w</span> <span class=o>*</span><span class=nx>Writer</span><span class=p>)</span> <span class=o>*</span><span class=nx>ReadWriter</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>bufio 包还提供了一个 ReadWriter 结构体，允许将 Reader 和 Writer 作为一个整体来处理读取和写入。</p><h3 id=34-scanner><a href=#34-scanner>#</a>
+3.4 Scanner</h3><p>bufio 中的 Scanner 类型是一个用于读取文本数据的方便的工具，Scanner 提供了逐行或逐个指定分割符读取文本的能力，并可以通过自定义的 SplitFunc 函数来处理不同的分割符。</p><div class=highlight><div class=chroma><table class=lntable><tr><td class=lntd><pre tabindex=0 class=chroma><code><span class=lnt> 1
+</span><span class=lnt> 2
+</span><span class=lnt> 3
+</span><span class=lnt> 4
+</span><span class=lnt> 5
+</span><span class=lnt> 6
+</span><span class=lnt> 7
+</span><span class=lnt> 8
+</span><span class=lnt> 9
+</span><span class=lnt>10
+</span><span class=lnt>11
+</span><span class=lnt>12
+</span><span class=lnt>13
+</span><span class=lnt>14
+</span><span class=lnt>15
+</span><span class=lnt>16
+</span><span class=lnt>17
+</span><span class=lnt>18
+</span><span class=lnt>19
+</span><span class=lnt>20
+</span><span class=lnt>21
+</span><span class=lnt>22
+</span><span class=lnt>23
+</span><span class=lnt>24
+</span><span class=lnt>25
+</span><span class=lnt>26
+</span><span class=lnt>27
+</span><span class=lnt>28
+</span><span class=lnt>29
+</span></code></pre></td><td class=lntd><pre tabindex=0 class=chroma><code class=language-Go data-lang=Go><span class=line><span class=cl><span class=kn>package</span> <span class=nx>bufio</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>Scanner</span> <span class=kd>struct</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>    <span class=nx>r</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span>
+</span></span><span class=line><span class=cl>    <span class=nx>split</span> <span class=nx>SplitFunc</span>
+</span></span><span class=line><span class=cl>    <span class=nx>maxTokenSize</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>token</span> <span class=p>[]</span><span class=kt>byte</span>
+</span></span><span class=line><span class=cl>    <span class=nx>buf</span> <span class=p>[]</span><span class=kt>byte</span>
+</span></span><span class=line><span class=cl>    <span class=nx>start</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>end</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>err</span> <span class=kt>error</span>
+</span></span><span class=line><span class=cl>    <span class=nx>empties</span> <span class=kt>int</span>
+</span></span><span class=line><span class=cl>    <span class=nx>scanCalled</span> <span class=kt>bool</span>
+</span></span><span class=line><span class=cl>    <span class=nx>done</span> <span class=kt>bool</span>
+</span></span><span class=line><span class=cl><span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>type</span> <span class=nx>SplitFunc</span> <span class=kd>func</span><span class=p>(</span><span class=nx>data</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>atEOF</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>ScanBytes</span><span class=p>(</span><span class=nx>data</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>atEOF</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>ScanRunes</span><span class=p>(</span><span class=nx>data</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>atEOF</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>ScanLines</span><span class=p>(</span><span class=nx>data</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>atEOF</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>ScanWords</span><span class=p>(</span><span class=nx>data</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>atEOF</span> <span class=kt>bool</span><span class=p>)</span> <span class=p>(</span><span class=kt>int</span><span class=p>,</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=kt>error</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=nf>NewScanner</span><span class=p>(</span><span class=nx>r</span> <span class=nx>io</span><span class=p>.</span><span class=nx>Reader</span><span class=p>)</span> <span class=o>*</span><span class=nx>Scanner</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Err</span><span class=p>()</span> <span class=kt>error</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Buffer</span><span class=p>(</span><span class=nx>buf</span> <span class=p>[]</span><span class=kt>byte</span><span class=p>,</span> <span class=nx>max</span> <span class=kt>int</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Split</span><span class=p>(</span><span class=nx>split</span> <span class=nx>SplitFunc</span><span class=p>)</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Bytes</span><span class=p>()</span> <span class=p>[]</span><span class=kt>byte</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Text</span><span class=p>()</span> <span class=kt>string</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=kd>func</span> <span class=p>(</span><span class=nx>s</span> <span class=o>*</span><span class=nx>Scanner</span><span class=p>)</span> <span class=nf>Scan</span><span class=p>()</span> <span class=kt>bool</span> <span class=p>{</span> <span class=o>...</span> <span class=p>}</span>
+</span></span></code></pre></td></tr></table></div></div><p>Scanner 结构体中 r 记录 io.Reader 输入流，通过这个输入流读取数据进行扫描，split 记录定义如何分割输入文本数据的函数，maxTokenSize 记录 token 的最大大小，token 记录最后一个被 split 函数返回的 token，buf 一个用作参数传递给 split 函数的缓冲区，buf 保存了从输入流中读取的数据，start 表示 buf 中第一个未处理字节的位置，end 表示 buf 中数据的结束位置，err 记录潜在的错误，empties 记录连续空 token 的次数，scanCalled 标记是否调用过 Scan 方法，done 表示是否扫描结束。</p><p>在 bufio 包中提供了四种 SplitFunc 实现，分别是 ScanBytes、ScanRunes、ScanLines 和 ScanWords，默认情况下通过 NewScanner 创建的 Scanner 会使用 ScanLines。通过 Buffer 和 Split 方法可以修改 Scanner 所使用的缓冲区、token 的最大大小以及所使用的 SplitFunc。Bytes 和 Text 方法返回最后一个记录的 token。</p><p>Scan 方法是 Scanner 结构体的核心方法，它通过循环直到生成一个 token 或者扫描结束。在循环过程中，它首先尝试通过缓存中的已有数据生成 token，如果缓冲区数据遇到错误无法生成 token则返回错误，如果需要更多数据，首先判断当前缓冲区的使用情况，如果当前缓冲区前半部分有很多空闲空间或缓冲区已满则将数据移动到缓冲区的开始位置，如果缓冲区仍然填满，则成倍扩大缓冲区的大小，然后通过循环内部 io.Reader 的接口获取一次数据，如果连续取到空数据的次数超过阈值，则返回错误。Scan 方法的主要逻辑是不断从输入流中读取数据，并使用 split 函数生成 token，直到遇到 io.EOF 错误或其他错误为止，在这个过程中，会通过成倍扩大缓冲区大小不断调整缓冲区大小以适应输入数据。</p><p>Scanner 结构体提供的 Scan 方法与 Reader 结构体提供的 ReadBytes 方法类似，均可以实现相似的功能，Scan 方法提供了更高度定制的分割行为以及对错误的处理，在某些简单的读取场景，使用 ReadBytes 方法可能更为方便。</p></section><footer class=article-footer><section class=article-tags><a href=/blog/tags/go/>Go</a></section><section class=article-copyright><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copyright" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><path d="M14.5 9a3.5 4 0 100 6"/></svg>
+<span>Licensed under CC BY-NC-SA 4.0</span></section><section class=article-lastmod><svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-clock" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentcolor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z"/><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+<span>Last updated on Nov 26, 2023 00:00 UTC</span></section></footer></article><aside class=related-content--wrapper><h2 class=section-title>Related content</h2><div class=related-content><div class="flex article-list--tile"><article><a href=/blog/p/docker/><div class=article-details><h2 class=article-title>Docker 基本原理及相关概念</h2></div></a></article><article class=has-image><a href=/blog/p/tokio/><div class=article-image><img src=/blog/p/tokio/cover.d823f79d4c7281a49a3915c97ec9cfb4_hud65947a92fbac0d992d55c4c8e5c9fc4_307071_250x150_fill_q75_box_smart1.jpg width=250 height=150 loading=lazy alt="Featured image of post Rust 异步运行时探秘" data-key=tokio data-hash="md5-2CP3nUxygaSaORXJfsnPtA=="></div><div class=article-details><h2 class=article-title>Rust 异步运行时探秘</h2></div></a></article></div></div></aside><footer class=site-footer><section class=copyright>&copy;
+2020 -
+2024 zjregee</section><section class=powerby>Built with <a href=https://gohugo.io/ target=_blank rel=noopener>Hugo</a><br>Theme <b><a href=https://github.com/CaiJimmy/hugo-theme-stack target=_blank rel=noopener data-version=3.25.0>Stack</a></b> designed by <a href=https://jimmycai.com target=_blank rel=noopener>Jimmy</a></section></footer><div class=pswp tabindex=-1 role=dialog aria-hidden=true><div class=pswp__bg></div><div class=pswp__scroll-wrap><div class=pswp__container><div class=pswp__item></div><div class=pswp__item></div><div class=pswp__item></div></div><div class="pswp__ui pswp__ui--hidden"><div class=pswp__top-bar><div class=pswp__counter></div><button class="pswp__button pswp__button--close" title="Close (Esc)"></button>
+<button class="pswp__button pswp__button--share" title=Share></button>
+<button class="pswp__button pswp__button--fs" title="Toggle fullscreen"></button>
+<button class="pswp__button pswp__button--zoom" title="Zoom in/out"></button><div class=pswp__preloader><div class=pswp__preloader__icn><div class=pswp__preloader__cut><div class=pswp__preloader__donut></div></div></div></div></div><div class="pswp__share-modal pswp__share-modal--hidden pswp__single-tap"><div class=pswp__share-tooltip></div></div><button class="pswp__button pswp__button--arrow--left" title="Previous (arrow left)">
+</button>
+<button class="pswp__button pswp__button--arrow--right" title="Next (arrow right)"></button><div class=pswp__caption><div class=pswp__caption__center></div></div></div></div></div><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.js integrity="sha256-ePwmChbbvXbsO02lbM3HoHbSHTHFAeChekF1xKJdleo=" crossorigin=anonymous defer></script><script src=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe-ui-default.min.js integrity="sha256-UKkzOn/w1mBxRmLLGrSeyB4e1xbrp4xylgAWb3M42pU=" crossorigin=anonymous defer></script><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/default-skin/default-skin.min.css crossorigin=anonymous><link rel=stylesheet href=https://cdn.jsdelivr.net/npm/photoswipe@4.1.3/dist/photoswipe.min.css crossorigin=anonymous></main></div><script src=https://cdn.jsdelivr.net/npm/node-vibrant@3.1.6/dist/vibrant.min.js integrity="sha256-awcR2jno4kI5X0zL8ex0vi2z+KMkF24hUW8WePSA9HM=" crossorigin=anonymous></script><script type=text/javascript src=/blog/ts/main.js defer></script><script>(function(){const e=document.createElement("link");e.href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap",e.type="text/css",e.rel="stylesheet",document.head.appendChild(e)})()</script></body></html>
